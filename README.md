@@ -23,12 +23,40 @@ It targets the Spotify Web API as it stands after the February 2026 Development 
    python3 -m venv .venv
    .venv/bin/pip install requests pyyaml     # pyyaml is only needed for YAML input
    ```
-3. Set your app's Client ID. No Client Secret is needed, because sign-in uses PKCE.
-   ```bash
-   export SPOTIFY_CLIENT_ID=<your client id>
-   ```
+3. Put your app's Client ID in a `.env` file. See [Setting up `.env`](#setting-up-env) below.
 
 The first command that talks to Spotify opens your browser so you can approve access. The token is cached in `~/.config/spotify-playlist/token.json`, outside the repo, so later runs don't need the browser. Pass `--login` to sign in again.
+
+### Setting up `.env`
+
+Your Spotify settings go in a `.env` file in the repo folder, next to `playlist_generator.py`. The file is git-ignored, so it's never committed.
+
+1. Find your **Client ID** on your app's page in the [developer dashboard](https://developer.spotify.com/dashboard), under **Settings**.
+2. Create `.env` and make it readable only by you:
+   ```bash
+   cat > .env <<'ENV'
+   # Local Spotify settings: git-ignored, do not commit.
+
+   # playlist_generator.py (PKCE sign-in, no secret needed)
+   SPOTIFY_CLIENT_ID=<your client id>
+
+   # spotify_playbook.ipynb also needs the app secret (Settings → View client secret):
+   # SPOTIFY_CLIENTSECRET=<your client secret>
+   ENV
+   chmod 600 .env
+   ```
+3. Check that it's picked up and ignored:
+   ```bash
+   .venv/bin/python playlist_generator.py list     # signs in on first run
+   git check-ignore .env                            # prints ".env" if it's ignored
+   ```
+
+How it's read:
+
+- `playlist_generator.py` loads `.env` from its own folder automatically, so it works from any directory.
+- A variable already set in your shell takes priority over `.env`. This lets you try another app with `SPOTIFY_CLIENT_ID=... .venv/bin/python playlist_generator.py list`.
+- Format: one `KEY=value` per line. Lines starting with `#` are comments; quotes and a leading `export ` are allowed.
+- The Client ID isn't a password, but the Client Secret is. Keep `.env` out of git, screenshots and chats.
 
 ### Commands
 
@@ -109,12 +137,9 @@ Only `link` (or `title` and `artist` when there's no link) decides what gets add
 
 This part pulls down a playlist by URL or URI with [`spotipy`](https://spotipy.readthedocs.io/), using the client-credentials flow. It shows the playlist's link and cover art, loads the tracks into a `pandas` DataFrame, and plots track popularity.
 
-It needs a Client ID and Client Secret from the same kind of developer app:
+It needs a Client ID and a Client Secret. Uncomment `SPOTIFY_CLIENTSECRET` in your [`.env`](#setting-up-env) and fill it in. Note there's no underscore before `SECRET`.
 
-```bash
-export SPOTIFY_CLIENT_ID=<your client id>
-export SPOTIFY_CLIENTSECRET=<your client secret>   # note: no underscore before SECRET
-```
+The notebook doesn't read `.env` by itself, so load it into your shell before starting Jupyter (see [Running it](#running-it)).
 
 Change `playlist_id` in the first code cell to explore a different playlist.
 
@@ -139,5 +164,6 @@ This part analyses your own listening, based on [this approach](https://github.c
 
 ```bash
 .venv/bin/pip install jupyter spotipy pandas matplotlib wordcloud
+set -a; source .env; set +a          # export the .env settings to Jupyter
 .venv/bin/jupyter notebook spotify_playbook.ipynb
 ```

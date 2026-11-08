@@ -21,7 +21,8 @@ One-off setup
   1. https://developer.spotify.com/dashboard → Create app → choose "Web API".
      Redirect URI: http://127.0.0.1:8888/callback  (must match exactly)
   2. pip install requests pyyaml      (pyyaml only needed for YAML input)
-  3. export SPOTIFY_CLIENT_ID=<your app's client id>
+  3. Put SPOTIFY_CLIENT_ID=<your app's client id> in a .env file next to this
+     script (git-ignored), or export it in your shell.
 
 The first run opens a browser to approve access. The refresh token is cached
 in ~/.config/spotify-playlist/token.json, so later runs don't need the browser.
@@ -535,10 +536,20 @@ def cmd_check(args):
     print(f"OK: Spotify playlist matches {args.file}.")
 
 
+def load_dotenv(path: Path = Path(__file__).with_name(".env")):
+    """Read KEY=VALUE lines from .env next to this script; real env vars win."""
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        key, sep, value = line.strip().partition("=")
+        if sep and key and not key.startswith("#"):
+            os.environ.setdefault(key.removeprefix("export ").strip(), value.strip().strip("\"'"))
+
+
 def client_id() -> str:
     cid = os.environ.get("SPOTIFY_CLIENT_ID")
     if not cid:
-        sys.exit("Set SPOTIFY_CLIENT_ID first (see the top of this file for setup).")
+        sys.exit("Set SPOTIFY_CLIENT_ID in .env or your shell first (see the top of this file).")
     return cid
 
 
@@ -584,6 +595,7 @@ def main():
     k.set_defaults(func=cmd_check)
 
     args = ap.parse_args()
+    load_dotenv()
     if args.login and TOKEN_FILE.exists():
         TOKEN_FILE.unlink()
     try:

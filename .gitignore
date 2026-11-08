@@ -16,3 +16,6 @@ MyData/
 
 # macOS
 .DS_Store
+
+# Local secrets and settings
+.env
