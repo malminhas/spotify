@@ -2,7 +2,7 @@
 """
 playlist_generator.py — build Spotify playlists from YAML or JSON tracklists.
 
-Version 1.0.0, 2026-11-08, by Mal Minhas (python playlist_generator.py -V)
+Version 1.0.1, 2026-11-08, by Mal Minhas (python playlist_generator.py -V)
 
 Commands
   create FILE      Create a playlist from a YAML/JSON tracklist, in order.
@@ -71,6 +71,13 @@ Notes
   DELETE /me/library, search limit of 10. The app owner needs Premium.
 
 Release notes
+  1.0.1 (2026-11-08)  Tests.
+    - tests/test_playlist_generator.py: 35 offline pytest tests (fake Spotify
+      client and fake AI replies, no network calls) covering tracklists,
+      create --replace, AI model choice, description rules, --set-description
+      and -V. Run with: pytest
+    - No change to how the tool behaves.
+
   1.0.0 (2026-11-08)  First release.
     - create: build a playlist from a YAML/JSON tracklist in file order, from
       track, album (disc/track filters) and playlist links or artist + title
@@ -84,7 +91,7 @@ Release notes
     - PKCE sign-in with a cached token; settings and API keys read from .env.
 """
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 __date__ = "2026-11-08"
 __author__ = "Mal Minhas"
 

@@ -9,7 +9,7 @@ Various Spotify experiments:
 
 ## Playlist generator
 
-**Version 1.0.0** (2026-11-08). Run `python playlist_generator.py -V` to see the installed version; release notes are in the script's header.
+**Version 1.0.1** (2026-11-08). Run `python playlist_generator.py -V` to see the installed version; release notes are in the script's header.
 
 `playlist_generator.py` takes a tracklist file (YAML or JSON) and creates a Spotify playlist with the tracks in file order. Tracklists are local files and are git-ignored (see [Tracklists stay local](#tracklists-stay-local)).
 
@@ -109,7 +109,7 @@ Global options go before the command:
 
 | Option | What it does |
 |---|---|
-| `-V`, `--version` | Prints the version, release date and author, e.g. `playlist_generator.py 1.0.0 (2026-11-08) by Mal Minhas`. |
+| `-V`, `--version` | Prints the version, release date and author, e.g. `playlist_generator.py 1.0.1 (2026-11-08) by Mal Minhas`. |
 | `--login` | Ignores the cached Spotify token and signs in again, e.g. `python playlist_generator.py --login list`. |
 | `-h`, `--help` | Lists the commands; `python playlist_generator.py COMMAND --help` lists a command's options. |
 
@@ -217,12 +217,15 @@ Only `link` (or `title` and `artist` when there's no link) decides what gets add
 The tests are in `tests/test_playlist_generator.py` and use [pytest](https://docs.pytest.org/). They check the generator without touching Spotify, Anthropic or OpenAI: a fake Spotify client and fake AI replies stand in for the real services, and each test builds its own sample tracklists in a temporary folder. So they run in a fresh clone, need no `.env` or sign-in, and cost nothing.
 
 ```bash
-workon spotify
-pip install -r requirements.txt     # includes pytest
+workon spotify                      # the virtualenv from Setup
+pip install -r requirements.txt     # includes pytest (only needed once)
 pytest                              # run all tests from the repo root
-pytest -v                           # list each test
+pytest -v                           # list each test and its result
 pytest -k description               # only tests whose name contains "description"
+python -m pytest                    # same as pytest, if pytest isn't on your PATH
 ```
+
+A passing run ends with `35 passed`. A failure names the test and shows what differed; fix it before committing.
 
 What they cover:
 
