@@ -2,7 +2,7 @@
 
 Various Spotify experiments:
 
-- **[`playlist_generator.py`](playlist_generator.py)**: a command-line tool that builds Spotify playlists from YAML or JSON tracklists, then lists, checks and deletes them.
+- **[`playlist_generator.py`](playlist_generator.py)**: a command-line tool that builds Spotify playlists from YAML or JSON tracklists, then lists, checks, summarises (with an optional Claude- or OpenAI-written overview) and deletes them.
 - **[`spotify_playbook.ipynb`](spotify_playbook.ipynb)**: a Jupyter notebook that explores a playlist with `spotipy` and analyses your Spotify streaming history.
 
 ---
@@ -20,7 +20,7 @@ It targets the Spotify Web API as it stands after the February 2026 Development 
    - Redirect URI: `http://127.0.0.1:8888/callback` (must match exactly)
 2. Create a `spotify` virtualenv with the dependencies, using [virtualenvwrapper](https://virtualenvwrapper.readthedocs.io/). `-a .` links it to this folder, so `workon spotify` also changes into it.
    ```bash
-   mkvirtualenv -a . -r requirements.txt spotify   # requests, pyyaml, anthropic
+   mkvirtualenv -a . -r requirements.txt spotify   # requests, pyyaml, anthropic, openai
    workon spotify                                  # in each new shell
    ```
 3. Put your app's Client ID in a `.env` file. See [Setting up `.env`](#setting-up-env) below.
@@ -43,8 +43,9 @@ Your Spotify settings go in a `.env` file in the repo folder, next to `playlist_
    # spotify_playbook.ipynb also needs the app secret (Settings → View client secret):
    # SPOTIFY_CLIENTSECRET=<your client secret>
 
-   # Optional: Claude-written summary in `info` (key from https://platform.claude.com)
-   # ANTHROPIC_API_KEY=<your Anthropic API key>
+   # Optional: AI summary in `info`. Add the key for each provider you want to use.
+   # ANTHROPIC_API_KEY=<your Anthropic API key>   # https://platform.claude.com
+   # OPENAI_API_KEY=<your OpenAI API key>         # https://platform.openai.com
    ENV
    chmod 600 .env
    ```
@@ -59,8 +60,8 @@ How it's read:
 - `playlist_generator.py` loads `.env` from its own folder automatically, so it works from any directory.
 - A variable already set in your shell takes priority over `.env`. This lets you try another app with `SPOTIFY_CLIENT_ID=... python playlist_generator.py list`.
 - Format: one `KEY=value` per line. Lines starting with `#` are comments; quotes and a leading `export ` are allowed.
-- `ANTHROPIC_API_KEY` is only used by `info` for its AI summary. Without it, `info` still prints the stats and tracklist.
-- The Client ID isn't a password, but the Client Secret and the Anthropic API key are. Keep `.env` out of git, screenshots and chats.
+- `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` are only used by `info` for its AI summary, and you only need the one for the provider you choose. Without them, `info` still prints the stats and tracklist.
+- The Client ID isn't a password, but the Client Secret and the API keys are. Keep `.env` out of git, screenshots and chats.
 
 ### Commands
 
@@ -78,7 +79,9 @@ python playlist_generator.py create party_2026.yaml --replace
 python playlist_generator.py check party_2026.yaml
 
 # Summary (length, tracks, artists, years), AI-written overview and full tracklist
-python playlist_generator.py info "Party 2026"           # --no-ai to skip the overview
+python playlist_generator.py info "Party 2026"                  # overview by Claude Opus 5.5
+python playlist_generator.py info "Party 2026" --model openai   # overview by gpt-5.5
+python playlist_generator.py info "Party 2026" --no-ai          # skip the overview
 
 # List your playlists (--all includes ones you follow, --filter TEXT, --json)
 python playlist_generator.py list
@@ -91,9 +94,43 @@ python playlist_generator.py delete "Party 2026"
 |---|---|
 | `create FILE` | Builds a playlist in file order. Stops with an error if you already own a playlist with that name, unless you pass `--replace` (swap its tracks, keep its link) or `--allow-duplicate-name`. Every track is looked up before anything changes, and at the end it lists any it couldn't add. Other options: `--name`, `--description`, `--public`. |
 | `check FILE` | Compares the Spotify playlist with the file track by track, using exact track IDs. Prints the tracklist by section with each section's track count and running time, and marks mismatches with ✗. Exits with code 1 on a mismatch. |
-| `info TARGET` | Shows a playlist's link, owner, visibility, description, track and artist counts, total and average length, shortest and longest tracks, top artists and album years by decade, a short AI-written overview (mood, arc, standout moments), then the full tracklist with lengths and years. `TARGET` is a name, ID or link. Album years come from the album on Spotify, so remasters and compilations can show a later year. The overview uses Claude Opus 5.5 through the Anthropic API when `ANTHROPIC_API_KEY` is set (see [Setting up `.env`](#setting-up-env)); each run is a small, billed API call. `--no-ai` skips it. |
+| `info TARGET` | Shows a playlist's link, owner, visibility, description, track and artist counts, total and average length, shortest and longest tracks, top artists and album years by decade, a short AI-written overview (mood, arc, standout moments), then the full tracklist with lengths and years. `TARGET` is a name, ID or link. Album years come from the album on Spotify, so remasters and compilations can show a later year. Choose who writes the overview with `--model` (see [AI summary models](#ai-summary-models)); `--no-ai` skips it. |
 | `list` | Shows your playlists with track counts, visibility and IDs. |
 | `delete TARGET` | Removes a playlist from your library. Spotify has no hard delete; you can recover a removed playlist from your account page (*Recover playlists*). Use `--all-matches` when several playlists share a name. |
+
+### AI summary models
+
+`info` can ask Claude (Anthropic) or an OpenAI model to write its overview. Pick one with `--model`:
+
+| `--model` | Provider | Model used | Key needed in `.env` |
+|---|---|---|---|
+| *(not given)*, `claude` or `anthropic` | Anthropic | Claude Opus 5.5 (`claude-opus-5-5`) | `ANTHROPIC_API_KEY` |
+| `openai` or `gpt` | OpenAI | `gpt-5.5` | `OPENAI_API_KEY` |
+| `claude-…` | Anthropic | the model you name, e.g. `claude-sonnet-5-5`, `claude-haiku-5-5` | `ANTHROPIC_API_KEY` |
+| `gpt-…`, `chatgpt-…`, `o` + a digit | OpenAI | the model you name, e.g. `gpt-6-sol`, `o3` | `OPENAI_API_KEY` |
+
+```bash
+python playlist_generator.py info "Party 2026"                              # Claude Opus 5.5
+python playlist_generator.py info "Party 2026" --model openai               # gpt-5.5
+python playlist_generator.py info "Party 2026" --model claude-sonnet-5-5    # cheaper Claude
+python playlist_generator.py info "Party 2026" --model gpt-6-sol            # another OpenAI model
+```
+
+How it works:
+
+- **The model name picks the provider:** anything starting `claude-` goes to Anthropic; `gpt-`, `chatgpt-` or `o` followed by a digit goes to OpenAI. Other names are rejected with a short message. Shortcuts aren't case-sensitive.
+- **Same prompt for both:** the playlist's name, description and full tracklist (artist, title, length, album year), with a request for two or three short paragraphs on genres and eras, the mood and energy arc, standout tracks or transitions, and the setting it suits.
+- **APIs used:** Claude through the Anthropic Messages API at `medium` effort; OpenAI through the Responses API. On Claude Fable 5.1, Opus 5.5, Opus 5 and Sonnet 5.5, Anthropic's server-side fallback is on: if the model declines the request, Anthropic re-runs it on its recommended fallback model.
+- **Failures never break `info`:** a missing or rejected key, an unknown model, a rate limit, a network problem or a declined request prints `AI summary: skipped (…)` with the reason, and the stats and tracklist still appear.
+- **Cost and privacy:** each run is one billed API call, typically a few cents, to the provider you chose. The tracklist is sent to that provider; nothing else from your Spotify account is.
+
+To see which OpenAI models your key can use:
+
+```bash
+python -c "from openai import OpenAI; print('\n'.join(sorted(m.id for m in OpenAI().models.list())))"
+```
+
+Run `set -a; source .env; set +a` first so the key is in your environment. For Claude, the current models are listed at https://platform.claude.com/docs/en/about-claude/models/overview.
 
 ### Tracklist format
 

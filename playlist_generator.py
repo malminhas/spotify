@@ -8,7 +8,7 @@ Commands
   delete TARGET    Remove a playlist (by name, ID, URI or link) from your library.
   check FILE       Check the Spotify playlist matches the file; prints it by section.
   info TARGET      Summary (length, tracks, artists, years), an AI-written overview
-                   (needs ANTHROPIC_API_KEY) and the full tracklist.
+                   (Claude or OpenAI, chosen with --model) and the full tracklist.
 
 Examples
   python playlist_generator.py create party_2026.yaml
@@ -23,8 +23,8 @@ Examples
 One-off setup
   1. https://developer.spotify.com/dashboard → Create app → choose "Web API".
      Redirect URI: http://127.0.0.1:8888/callback  (must match exactly)
-  2. pip install requests pyyaml anthropic   (pyyaml only for YAML input,
-                                              anthropic only for info's AI summary)
+  2. pip install -r requirements.txt   (requests; pyyaml for YAML input;
+                                        anthropic / openai for info's AI summary)
   3. Put SPOTIFY_CLIENT_ID=<your app's client id> in a .env file next to this
      script (git-ignored), or export it in your shell.
 
@@ -595,7 +595,7 @@ def cmd_info(args):
         print("                (from the album on Spotify, so remasters can show a later year)")
 
     if not args.no_ai:
-        ai_summary(pl, tracks, artists, year)
+        ai_summary(pl, tracks, artists, year, args.model)
 
     print("\nTracklist")
     for i, t in enumerate(tracks, 1):
@@ -603,25 +603,91 @@ def cmd_info(args):
         print(f"  {i:>3}. {name[:68]:<68} {fmt_ms(t.get('duration_ms', 0)):>6}  {year(t)}")
 
 
-AI_MODEL = "claude-opus-5-5"
+AI_MODEL = "claude-opus-5-5"   # default for info's summary; override with --model
+# --model accepts a provider name as shorthand for that provider's default model.
+AI_DEFAULTS = {"claude": "claude-opus-5-5", "anthropic": "claude-opus-5-5",
+               "openai": "gpt-5.5", "gpt": "gpt-5.5"}
 AI_SYSTEM = (
     "You write short, specific overviews of music playlists for the person who made them. "
     "Work only from the tracklist you are given; don't invent facts about tracks you aren't sure of. "
     "Write plain text for a terminal: no markdown, headings or bullet points."
 )
+# Claude models that accept the server-side refusal fallback ("default" mode).
+CLAUDE_FALLBACK_MODELS = {"claude-fable-5-1", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5"}
 
 
-def ai_summary(pl: dict, tracks: list, artists, year):
-    """Print a Claude-written overview of the playlist; never fails the info command."""
+class AISkipped(Exception):
+    """The AI summary couldn't be produced; the message says why."""
+
+
+def ai_provider(model: str):
+    if model.startswith("claude-"):
+        return "anthropic"
+    if model.startswith(("gpt-", "chatgpt-")) or re.match(r"o\d", model):
+        return "openai"
+    return None
+
+
+def claude_text(model: str, prompt: str) -> str:
     if not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
-        print("\nAI summary: skipped (add ANTHROPIC_API_KEY to .env, or pass --no-ai)")
-        return
+        raise AISkipped("add ANTHROPIC_API_KEY to .env")
     try:
         import anthropic
     except ImportError:
-        print("\nAI summary: skipped (pip install anthropic)")
-        return
+        raise AISkipped("pip install anthropic")
+    extra = ({"betas": ["server-side-fallback-2026-07-01"], "fallbacks": "default"}
+             if model in CLAUDE_FALLBACK_MODELS else {})   # re-run on a fallback model if declined
+    try:
+        resp = anthropic.Anthropic().beta.messages.create(
+            model=model, max_tokens=16000, output_config={"effort": "medium"},
+            system=AI_SYSTEM, messages=[{"role": "user", "content": prompt}], **extra)
+    except anthropic.AuthenticationError:
+        raise AISkipped("Anthropic rejected the API key in ANTHROPIC_API_KEY")
+    except anthropic.NotFoundError:
+        raise AISkipped(f"Anthropic doesn't recognise the model '{model}'")
+    except anthropic.RateLimitError:
+        raise AISkipped("Anthropic rate limit; try again shortly")
+    except anthropic.APIStatusError as err:
+        raise AISkipped(f"Anthropic API error {err.status_code}: {err.message}")
+    except anthropic.APIConnectionError:
+        raise AISkipped("couldn't reach the Anthropic API")
+    if resp.stop_reason == "refusal":
+        raise AISkipped("the model declined this request")
+    return "\n".join(b.text for b in resp.content if b.type == "text").strip()
 
+
+def openai_text(model: str, prompt: str) -> str:
+    if not os.environ.get("OPENAI_API_KEY"):
+        raise AISkipped("add OPENAI_API_KEY to .env")
+    try:
+        import openai
+    except ImportError:
+        raise AISkipped("pip install openai")
+    try:
+        resp = openai.OpenAI().responses.create(
+            model=model, instructions=AI_SYSTEM, input=prompt, max_output_tokens=16000)
+    except openai.AuthenticationError:
+        raise AISkipped("OpenAI rejected the API key in OPENAI_API_KEY")
+    except openai.NotFoundError:
+        raise AISkipped(f"OpenAI doesn't recognise the model '{model}' (or your key can't use it)")
+    except openai.RateLimitError:
+        raise AISkipped("OpenAI rate limit or quota; try again shortly")
+    except openai.APIStatusError as err:
+        raise AISkipped(f"OpenAI API error {err.status_code}: {err.message}")
+    except openai.APIConnectionError:
+        raise AISkipped("couldn't reach the OpenAI API")
+    if not resp.output_text.strip():
+        raise AISkipped(f"OpenAI returned no text (status: {resp.status})")
+    return resp.output_text.strip()
+
+
+def ai_summary(pl: dict, tracks: list, artists, year, model: str = AI_MODEL):
+    """Print an AI-written overview of the playlist; never fails the info command."""
+    model = AI_DEFAULTS.get(model.lower(), model)
+    provider = ai_provider(model)
+    if not provider:
+        print(f"\nAI summary: skipped ('{model}' isn't a Claude (claude-...) or OpenAI (gpt-..., o...) model)")
+        return
     lines = [f"{i}. {artists(t)} – {t.get('name')} ({fmt_ms(t.get('duration_ms', 0))}, "
              f"album year {year(t) or '?'})" for i, t in enumerate(tracks, 1)]
     prompt = (
@@ -634,41 +700,15 @@ def ai_summary(pl: dict, tracks: list, artists, year):
           "playlist's overall character: its genres and eras, how the mood and energy move "
           "from start to finish, a few standout tracks or transitions, and the setting it suits."
     )
-    print("Asking Claude for a summary...", end="", flush=True, file=sys.stderr)
+    print(f"Asking {model} for a summary...", end="", flush=True, file=sys.stderr)
     try:
-        client = anthropic.Anthropic()
-        resp = client.beta.messages.create(
-            model=AI_MODEL,
-            max_tokens=16000,
-            output_config={"effort": "medium"},
-            betas=["server-side-fallback-2026-07-01"],
-            fallbacks="default",          # re-run on a fallback model if the request is declined
-            system=AI_SYSTEM,
-            messages=[{"role": "user", "content": prompt}],
-        )
-    except anthropic.AuthenticationError:
+        text = (claude_text if provider == "anthropic" else openai_text)(model, prompt)
+    except AISkipped as why:
         print("\r\033[K", end="", file=sys.stderr)
-        print("\nAI summary: skipped (Anthropic rejected the API key in ANTHROPIC_API_KEY)")
+        print(f"\nAI summary: skipped ({why}; or pass --no-ai)")
         return
-    except anthropic.RateLimitError:
-        print("\r\033[K", end="", file=sys.stderr)
-        print("\nAI summary: skipped (Anthropic rate limit; try again shortly)")
-        return
-    except anthropic.APIStatusError as err:
-        print("\r\033[K", end="", file=sys.stderr)
-        print(f"\nAI summary: skipped (Anthropic API error {err.status_code}: {err.message})")
-        return
-    except anthropic.APIConnectionError:
-        print("\r\033[K", end="", file=sys.stderr)
-        print("\nAI summary: skipped (couldn't reach the Anthropic API)")
-        return
-    if resp.stop_reason == "refusal":
-        print("\r\033[K", end="", file=sys.stderr)
-        print("\nAI summary: skipped (the model declined this request)")
-        return
-    text = "\n".join(b.text for b in resp.content if b.type == "text").strip()
     print("\r\033[K", end="", file=sys.stderr)
-    print("\nAI summary (Claude)")
+    print(f"\nAI summary ({model})")
     for para in text.split("\n"):
         print(textwrap.fill(para, width=90, initial_indent="  ", subsequent_indent="  ") if para.strip() else "")
 
@@ -733,7 +773,11 @@ def main():
 
     n = sub.add_parser("info", help="summary and tracklist of a playlist")
     n.add_argument("target", help="playlist name, ID, spotify:playlist: URI or open.spotify.com link")
-    n.add_argument("--no-ai", action="store_true", help="skip the Claude-written summary")
+    n.add_argument("--no-ai", action="store_true", help="skip the AI-written summary")
+    n.add_argument("--model", default=AI_MODEL,
+                   help=f"model for the AI summary: 'claude' ({AI_DEFAULTS['claude']}), 'openai' "
+                        f"({AI_DEFAULTS['openai']}), or any Claude (claude-...) or OpenAI (gpt-..., o...) "
+                        f"model ID (default: {AI_MODEL})")
     n.set_defaults(func=cmd_info)
 
     args = ap.parse_args()
