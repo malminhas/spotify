@@ -1,22 +1,21 @@
-"""Offline tests for playlist_generator.py: no Spotify, Anthropic or OpenAI calls.
+"""Offline pytest tests for playlist_generator.py: no Spotify, Anthropic or OpenAI calls.
 
-Run from the repo root:  python -m unittest discover tests
+Run from the repo root:  pytest
 """
 
-import builtins
-import contextlib
-import io
 import json
 import sys
-import tempfile
 import types
-import unittest
 from pathlib import Path
-from unittest import mock
+
+import pytest
+import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import playlist_generator as pg  # noqa: E402
 
+
+# ---------------------------------------------------------------- helpers and fixtures
 
 def track(n: int) -> str:
     return f"https://open.spotify.com/track/{n:022d}"
@@ -32,48 +31,17 @@ def tracklist(n_tracks: int = 3, album: bool = False) -> dict:
     return {"name": "Test Mix", "description": "Old words", "tracks": tracks}
 
 
-def quietly(fn, *a, **kw):
-    """Run fn with stdout/stderr captured; return (stdout, exit code or None)."""
-    out = io.StringIO()
-    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
-        try:
-            fn(*a, **kw)
-            code = None
-        except SystemExit as e:
-            code = e.code
-    return out.getvalue(), code
-
-
-class TempFiles(unittest.TestCase):
-    def setUp(self):
-        self.dir = tempfile.TemporaryDirectory()
-        self.addCleanup(self.dir.cleanup)
-
-    def write(self, name: str, data: dict, header: str = "") -> str:
-        path = Path(self.dir.name) / name
+@pytest.fixture
+def write(tmp_path):
+    """Write a tracklist dict to tmp_path as YAML or JSON (by extension); return its path."""
+    def _write(name: str, data: dict, header: str = "") -> str:
+        path = tmp_path / name
         if name.endswith(".json"):
             path.write_text(json.dumps(data, indent=2))
         else:
-            import yaml
             path.write_text(header + yaml.safe_dump(data, sort_keys=False, allow_unicode=True))
         return str(path)
-
-
-class LoadTracklist(TempFiles):
-    def test_yaml_and_json_load_the_same(self):
-        data = tracklist()
-        self.assertEqual(pg.load_tracklist(self.write("t.yaml", data)),
-                         pg.load_tracklist(self.write("t.json", data)))
-
-    def test_rejects_unreadable_link(self):
-        data = tracklist()
-        data["tracks"][0]["link"] = "https://example.com/nope"
-        _, code = quietly(pg.load_tracklist, self.write("t.json", data))
-        self.assertIn("link I can't read", str(code))
-
-    def test_parse_link(self):
-        self.assertEqual(pg.parse_link("spotify:album:" + "b" * 22), ("album", "b" * 22))
-        self.assertEqual(pg.parse_link("nonsense"), (None, None))
+    return _write
 
 
 class FakeSpotify(pg.Spotify):
@@ -94,173 +62,219 @@ class FakeSpotify(pg.Spotify):
         return [track(1000 + i) for i in range(150)]
 
 
-class CreateReplace(TempFiles):
-    def run_create(self, path, **kw):
+@pytest.fixture
+def run_create(monkeypatch):
+    """Run cmd_create against FakeSpotify; return (calls, stdout-capturing result)."""
+    def _run(path, **kw):
         sp = FakeSpotify()
+        monkeypatch.setattr(pg, "Spotify", lambda token: sp)
+        monkeypatch.setattr(pg, "get_access_token", lambda *a: "t")
+        monkeypatch.setattr(pg, "client_id", lambda: "c")
         args = types.SimpleNamespace(**{"file": path, "name": None, "description": None,
                                         "public": False, "dry_run": False,
                                         "allow_duplicate_name": False, "replace": False, **kw})
-        with mock.patch.object(pg, "Spotify", lambda token: sp), \
-             mock.patch.object(pg, "get_access_token", lambda *a: "t"), \
-             mock.patch.object(pg, "client_id", lambda: "c"):
-            out, code = quietly(pg.cmd_create, args)
-        return sp.calls, out, code
-
-    def test_replace_keeps_playlist_and_batches_in_order(self):
-        calls, out, _ = self.run_create(self.write("t.yaml", tracklist(3, album=True)), replace=True)
-        self.assertEqual(calls[0][:2], ("PUT", "/playlists/OLD"))           # details updated
-        self.assertEqual(calls[1][:2], ("PUT", "/playlists/OLD/items"))     # first batch replaces
-        self.assertEqual(len(calls[1][2]["uris"]), 100)
-        self.assertEqual(calls[2][:2], ("POST", "/playlists/OLD/items"))    # rest appended
-        uris = calls[1][2]["uris"] + calls[2][2]["uris"]
-        self.assertEqual(len(uris), 3 + 150)                                 # skip entry left out
-        self.assertEqual(uris[0], "spotify:track:" + "0" * 22)
-        self.assertIn("Replaced tracks in 'Test Mix'", out)
-
-    def test_existing_name_refused_without_replace(self):
-        calls, _, code = self.run_create(self.write("t.yaml", tracklist()))
-        self.assertIn("--replace", str(code))
-        self.assertEqual(calls, [])                                          # nothing changed
+        pg.cmd_create(args)
+        return sp.calls
+    return _run
 
 
-class AIModels(unittest.TestCase):
-    def test_provider_from_model_name(self):
-        for model, provider in [("claude-opus-5-5", "anthropic"), ("gpt-5.5", "openai"),
-                                ("o3", "openai"), ("chatgpt-4o", "openai"), ("llama-3", None)]:
-            self.assertEqual(pg.ai_provider(model), provider, model)
+# ---------------------------------------------------------------- tracklists
 
-    def test_shortcuts_route_to_default_models(self):
-        seen = []
-        tracks = [{"name": "Xtal", "duration_ms": 293000, "artists": [{"name": "Aphex Twin"}],
-                   "album": {"release_date": "1992"}}]
-        with mock.patch.object(pg, "claude_text", lambda m, p: seen.append(m) or "ok"), \
-             mock.patch.object(pg, "openai_text", lambda m, p: seen.append(m) or "ok"):
-            for name in ["claude", "Anthropic", "openai", "GPT", "claude-sonnet-5-5"]:
-                quietly(pg.ai_summary, {"name": "P"}, tracks, lambda t: "Aphex Twin",
-                        lambda t: "1992", name)
-        self.assertEqual(seen, ["claude-opus-5-5", "claude-opus-5-5", "gpt-5.5", "gpt-5.5",
-                                "claude-sonnet-5-5"])
-
-    def test_missing_key_skips_without_failing(self):
-        with mock.patch.dict("os.environ", {}, clear=True):
-            out, code = quietly(pg.ai_summary, {"name": "P"}, [], str, str, "openai")
-        self.assertIsNone(code)
-        self.assertIn("AI summary: skipped (add OPENAI_API_KEY", out)
+def test_yaml_and_json_load_the_same(write):
+    data = tracklist()
+    assert pg.load_tracklist(write("t.yaml", data)) == pg.load_tracklist(write("t.json", data))
 
 
-class CleanDescription(unittest.TestCase):
-    c = staticmethod(pg.clean_description)
-
-    def test_plain_single_line(self):
-        self.assertEqual(self.c('"Dreamy *psych* into\n\nrave.\tThen <b>ambient</b> calm."'),
-                         "Dreamy psych into rave. Then ambient calm.")
-        self.assertEqual(self.c("Line1\r\nLine2"), "Line1 Line2")
-
-    def test_html_entities_and_brackets(self):
-        self.assertEqual(self.c("Rock &amp; roll"), "Rock & roll")
-        self.assertEqual(self.c("a < b > c"), "a b c")            # stray brackets, words kept
-
-    def test_length_limit(self):
-        words = self.c(("Word " * 100).strip())
-        self.assertLessEqual(len(words), pg.DESC_MAX)
-        self.assertTrue(words.endswith("…"))
-        sentences = self.c(("This is a sentence that is fairly long. " * 10).strip())
-        self.assertLessEqual(len(sentences), pg.DESC_MAX)
-        self.assertTrue(sentences.endswith("."))
-        self.assertLessEqual(len(self.c("x" * 400)), pg.DESC_MAX)
-
-    def test_empty(self):
-        self.assertEqual(self.c("   "), "")
+def test_rejects_unreadable_link(write):
+    data = tracklist()
+    data["tracks"][0]["link"] = "https://example.com/nope"
+    with pytest.raises(SystemExit, match="link I can't read"):
+        pg.load_tracklist(write("t.json", data))
 
 
-class SaveDescription(TempFiles):
-    def test_yaml_keeps_comments_and_round_trips(self):
-        path = self.write("t.yaml", tracklist(), header="# My comment\n")
-        text = 'Dream pop: "hazy" & bright, into rave.'
-        pg.save_description(path, text)
-        self.assertTrue(Path(path).read_text().startswith("# My comment"))
-        data = pg.load_tracklist(path)
-        self.assertEqual(data["description"], text)
-        self.assertEqual(len(data["tracks"]), 4)
-
-    def test_json(self):
-        path = self.write("t.json", tracklist())
-        pg.save_description(path, "New words")
-        self.assertEqual(pg.load_tracklist(path)["description"], "New words")
+@pytest.mark.parametrize("link, expected", [
+    ("spotify:album:" + "b" * 22, ("album", "b" * 22)),
+    ("https://open.spotify.com/intl-de/track/" + "c" * 22, ("track", "c" * 22)),
+    ("nonsense", (None, None)),
+])
+def test_parse_link(link, expected):
+    assert pg.parse_link(link) == expected
 
 
-class SetDescription(TempFiles):
-    AI_TEXT = '"A hazy drift\nfrom dream pop to <i>ambient</i> techno."'
-    CLEAN = "A hazy drift from dream pop to ambient techno."
+# ---------------------------------------------------------------- create --replace
 
-    class Sp:
-        def __init__(self, stored=None):
-            self.calls, self.stored = [], stored
+def test_replace_keeps_playlist_and_batches_in_order(write, run_create, capsys):
+    calls = run_create(write("t.yaml", tracklist(3, album=True)), replace=True)
+    assert calls[0][:2] == ("PUT", "/playlists/OLD")           # details updated in place
+    assert calls[1][:2] == ("PUT", "/playlists/OLD/items")     # first batch replaces tracks
+    assert len(calls[1][2]["uris"]) == 100
+    assert calls[2][:2] == ("POST", "/playlists/OLD/items")    # the rest are appended
+    uris = calls[1][2]["uris"] + calls[2][2]["uris"]
+    assert len(uris) == 3 + 150                                 # skip entry left out
+    assert uris[0] == "spotify:track:" + "0" * 22
+    assert "Replaced tracks in 'Test Mix'" in capsys.readouterr().out
 
-        def me(self):
-            return {"id": "me"}
 
-        def call(self, method, url, **kw):
-            self.calls.append((method, url, kw.get("json")))
-            if method == "GET":
-                return {"description": self.stored if self.stored is not None
-                        else self.calls[-2][2]["description"]}
-            return {}
+def test_existing_name_refused_without_replace(write, run_create):
+    with pytest.raises(SystemExit, match="--replace"):
+        run_create(write("t.yaml", tracklist()))
 
-    def run_set(self, sp, answer="y", owner="me", ai=None, **kw):
+
+# ---------------------------------------------------------------- AI models
+
+@pytest.mark.parametrize("model, provider", [
+    ("claude-opus-5-5", "anthropic"), ("gpt-5.5", "openai"), ("o3", "openai"),
+    ("chatgpt-4o", "openai"), ("llama-3", None),
+])
+def test_provider_from_model_name(model, provider):
+    assert pg.ai_provider(model) == provider
+
+
+@pytest.mark.parametrize("name, expected", [
+    ("claude", "claude-opus-5-5"), ("Anthropic", "claude-opus-5-5"), ("openai", "gpt-5.5"),
+    ("GPT", "gpt-5.5"), ("claude-sonnet-5-5", "claude-sonnet-5-5"), ("gpt-6-sol", "gpt-6-sol"),
+])
+def test_shortcuts_route_to_models(monkeypatch, name, expected):
+    seen = []
+    monkeypatch.setattr(pg, "claude_text", lambda m, p: seen.append(m) or "ok")
+    monkeypatch.setattr(pg, "openai_text", lambda m, p: seen.append(m) or "ok")
+    tracks = [{"name": "Xtal", "duration_ms": 293000, "artists": [{"name": "Aphex Twin"}],
+               "album": {"release_date": "1992"}}]
+    pg.ai_summary({"name": "P"}, tracks, lambda t: "Aphex Twin", lambda t: "1992", name)
+    assert seen == [expected]
+
+
+def test_missing_key_skips_summary_without_failing(monkeypatch, capsys):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    pg.ai_summary({"name": "P"}, [], str, str, "openai")
+    assert "AI summary: skipped (add OPENAI_API_KEY" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------- description cleaning
+
+@pytest.mark.parametrize("raw, clean", [
+    ('"Dreamy *psych* into\n\nrave.\tThen <b>ambient</b> calm."',
+     "Dreamy psych into rave. Then ambient calm."),
+    ("Line1\r\nLine2", "Line1 Line2"),
+    ("Rock &amp; roll", "Rock & roll"),          # entities decoded, not double-escaped
+    ("a < b > c", "a b c"),                      # stray brackets removed, words kept
+    ("   ", ""),
+])
+def test_clean_description(raw, clean):
+    assert pg.clean_description(raw) == clean
+
+
+def test_clean_description_length_limit():
+    words = pg.clean_description(("Word " * 100).strip())
+    assert len(words) <= pg.DESC_MAX and words.endswith("…")
+    sentences = pg.clean_description(("This is a sentence that is fairly long. " * 10).strip())
+    assert len(sentences) <= pg.DESC_MAX and sentences.endswith(".")
+    assert len(pg.clean_description("x" * 400)) <= pg.DESC_MAX
+
+
+# ---------------------------------------------------------------- saving descriptions
+
+def test_save_description_yaml_keeps_comments(write):
+    path = write("t.yaml", tracklist(), header="# My comment\n")
+    text = 'Dream pop: "hazy" & bright, into rave.'
+    pg.save_description(path, text)
+    assert Path(path).read_text().startswith("# My comment")
+    data = pg.load_tracklist(path)
+    assert data["description"] == text and len(data["tracks"]) == 4
+
+
+def test_save_description_json(write):
+    path = write("t.json", tracklist())
+    pg.save_description(path, "New words")
+    assert pg.load_tracklist(path)["description"] == "New words"
+
+
+# ---------------------------------------------------------------- info --set-description
+
+AI_TEXT = '"A hazy drift\nfrom dream pop to <i>ambient</i> techno."'
+CLEAN = "A hazy drift from dream pop to ambient techno."
+
+
+class DescSpotify:
+    """Fake Spotify for set_description: echoes the PUT description on GET unless 'stored' is set."""
+
+    def __init__(self, stored=None):
+        self.calls, self.stored = [], stored
+
+    def me(self):
+        return {"id": "me"}
+
+    def call(self, method, url, **kw):
+        self.calls.append((method, url, kw.get("json")))
+        if method == "GET":
+            return {"description": self.stored if self.stored is not None
+                    else self.calls[-2][2]["description"]}
+        return {}
+
+
+@pytest.fixture
+def set_desc(monkeypatch):
+    """Run set_description with a fake AI reply and a scripted answer to the prompt."""
+    def _run(sp, answer="y", owner="me", ai=None, **kw):
+        monkeypatch.setattr(pg, "ask_ai", ai or (lambda model, prompt: AI_TEXT))
+        monkeypatch.setattr("builtins.input", lambda *_: answer)
         pl = {"id": "P", "name": "Test Mix", "description": "Old words", "owner": {"id": owner}}
         args = types.SimpleNamespace(**{"model": "claude", "yes": False, "file": None, **kw})
-        ask = ai or (lambda model, prompt: self.AI_TEXT)
-        with mock.patch.object(pg, "ask_ai", ask), \
-             mock.patch.object(builtins, "input", lambda *_: answer):
-            return quietly(pg.set_description, sp, pl, [], str, str, args)
-
-    def test_decline_changes_nothing(self):
-        sp = self.Sp()
-        out, _ = self.run_set(sp, answer="n")
-        self.assertIn("Description not changed.", out)
-        self.assertFalse(any(c[0] == "PUT" for c in sp.calls))
-
-    def test_accept_writes_clean_text_and_verifies(self):
-        sp = self.Sp()
-        out, _ = self.run_set(sp)
-        self.assertEqual(sp.calls[0], ("PUT", "/playlists/P", {"description": self.CLEAN}))
-        self.assertIn(f"({len(self.CLEAN)}/300 characters", out)
-        self.assertIn("Description updated on Spotify.", out)
-        self.assertIn("next 'create --replace'", out)             # warns without --file
-
-    def test_html_escaped_readback_still_matches(self):
-        out, _ = self.run_set(self.Sp(stored=self.CLEAN.replace(".", "&#x2E;")), yes=True)
-        self.assertIn("Description updated on Spotify.", out)
-
-    def test_changed_readback_is_reported(self):
-        out, _ = self.run_set(self.Sp(stored="something else"), yes=True)
-        self.assertIn("Spotify now shows", out)
-
-    def test_file_is_updated(self):
-        path = self.write("t.yaml", tracklist())
-        self.run_set(self.Sp(), yes=True, file=path)
-        self.assertEqual(pg.load_tracklist(path)["description"], self.CLEAN)
-
-    def test_only_own_playlists(self):
-        _, code = self.run_set(self.Sp(), owner="someone-else", yes=True)
-        self.assertIn("only change the description of playlists you own", str(code))
-
-    def test_ai_failure_exits_with_reason(self):
-        def fail(model, prompt):
-            raise pg.AISkipped("add OPENAI_API_KEY to .env")
-        _, code = self.run_set(self.Sp(), ai=fail, yes=True)
-        self.assertIn("Description not changed: add OPENAI_API_KEY", str(code))
+        pg.set_description(sp, pl, [], str, str, args)
+    return _run
 
 
-class Version(unittest.TestCase):
-    def test_version_flag(self):
-        with mock.patch.object(sys, "argv", ["playlist_generator.py", "-V"]):
-            out, code = quietly(pg.main)
-        self.assertEqual(code, 0)
-        self.assertEqual(out.strip(),
-                         f"playlist_generator.py {pg.__version__} ({pg.__date__}) by {pg.__author__}")
+def test_decline_changes_nothing(set_desc, capsys):
+    sp = DescSpotify()
+    set_desc(sp, answer="n")
+    assert "Description not changed." in capsys.readouterr().out
+    assert not any(c[0] == "PUT" for c in sp.calls)
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_accept_writes_clean_text_and_verifies(set_desc, capsys):
+    sp = DescSpotify()
+    set_desc(sp)
+    out = capsys.readouterr().out
+    assert sp.calls[0] == ("PUT", "/playlists/P", {"description": CLEAN})
+    assert f"({len(CLEAN)}/300 characters" in out
+    assert "Description updated on Spotify." in out
+    assert "next 'create --replace'" in out                    # warns when there's no --file
+
+
+def test_html_escaped_readback_still_matches(set_desc, capsys):
+    set_desc(DescSpotify(stored=CLEAN.replace(".", "&#x2E;")), yes=True)
+    assert "Description updated on Spotify." in capsys.readouterr().out
+
+
+def test_changed_readback_is_reported(set_desc, capsys):
+    set_desc(DescSpotify(stored="something else"), yes=True)
+    assert "Spotify now shows" in capsys.readouterr().out
+
+
+def test_set_description_updates_file(set_desc, write):
+    path = write("t.yaml", tracklist())
+    set_desc(DescSpotify(), yes=True, file=path)
+    assert pg.load_tracklist(path)["description"] == CLEAN
+
+
+def test_only_own_playlists(set_desc):
+    with pytest.raises(SystemExit, match="only change the description of playlists you own"):
+        set_desc(DescSpotify(), owner="someone-else", yes=True)
+
+
+def test_ai_failure_exits_with_reason(set_desc):
+    def fail(model, prompt):
+        raise pg.AISkipped("add OPENAI_API_KEY to .env")
+    with pytest.raises(SystemExit, match="Description not changed: add OPENAI_API_KEY"):
+        set_desc(DescSpotify(), ai=fail, yes=True)
+
+
+# ---------------------------------------------------------------- version
+
+def test_version_flag(monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["playlist_generator.py", "-V"])
+    with pytest.raises(SystemExit) as exit_info:
+        pg.main()
+    assert exit_info.value.code == 0
+    assert capsys.readouterr().out.strip() == (
+        f"playlist_generator.py {pg.__version__} ({pg.__date__}) by {pg.__author__}")

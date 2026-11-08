@@ -3,6 +3,9 @@
 __pycache__/
 *.pyc
 
+# Tests
+.pytest_cache/
+
 # Jupyter
 .ipynb_checkpoints/
 

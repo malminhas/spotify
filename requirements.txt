@@ -4,5 +4,8 @@ pyyaml>=6.0             # YAML tracklists (not needed for JSON-only use)
 anthropic>=2.6          # info's AI summary with Claude (optional)
 openai>=3.46            # info's AI summary with OpenAI models (optional)
 
+# tests (tests/test_playlist_generator.py)
+pytest>=8.0
+
 # spotify_playbook.ipynb: install separately if you use the notebook
 #   workon spotify && pip install jupyter spotipy pandas matplotlib wordcloud

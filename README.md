@@ -214,14 +214,26 @@ Only `link` (or `title` and `artist` when there's no link) decides what gets add
 
 ### Tests
 
-`tests/test_playlist_generator.py` checks the generator without touching Spotify, Anthropic or OpenAI: it uses a fake Spotify client and fake AI replies, and builds its own sample tracklists in a temporary folder. It covers tracklist loading, `create --replace` (batching and track order), model routing, description cleaning and saving, the `--set-description` flow and `-V`.
+The tests are in `tests/test_playlist_generator.py` and use [pytest](https://docs.pytest.org/). They check the generator without touching Spotify, Anthropic or OpenAI: a fake Spotify client and fake AI replies stand in for the real services, and each test builds its own sample tracklists in a temporary folder. So they run in a fresh clone, need no `.env` or sign-in, and cost nothing.
 
 ```bash
 workon spotify
-python -m unittest discover tests        # add -v to list each test
+pip install -r requirements.txt     # includes pytest
+pytest                              # run all tests from the repo root
+pytest -v                           # list each test
+pytest -k description               # only tests whose name contains "description"
 ```
 
-It needs only the packages in `requirements.txt`.
+What they cover:
+
+- loading YAML and JSON tracklists, and reading Spotify links
+- `create --replace`: updating in place, batches of 100 in file order, skipped entries, refusing an existing name without `--replace`
+- AI models: which provider each model name uses, the `claude`/`openai` shortcuts, and a missing key skipping the overview
+- Spotify description rules: one plain-text line, HTML and Markdown removed, at most 300 characters
+- `info --set-description`: declining, accepting, read-back checks, saving with `--file`, own playlists only, and AI failures
+- `-V` output
+
+Run them before committing changes to `playlist_generator.py`.
 
 ---
 
