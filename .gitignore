@@ -1,5 +1,18 @@
+# Python
 .venv/
 __pycache__/
 *.pyc
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Tracklists, playlist backups and other data stay local (git add -f to share one)
+*.yaml
+*.yml
+*.json
+
+# Spotify data export used by the notebook (personal listening history)
+MyData/
+
+# macOS
 .DS_Store
-party_2026_backup.json
