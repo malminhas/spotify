@@ -18,10 +18,10 @@ It targets the Spotify Web API as it stands after the February 2026 Development 
 1. Go to the [Spotify developer dashboard](https://developer.spotify.com/dashboard) and choose **Create app**:
    - API: tick **Web API**
    - Redirect URI: `http://127.0.0.1:8888/callback` (must match exactly)
-2. Install the dependencies:
+2. Create a `spotify` virtualenv with the dependencies, using [virtualenvwrapper](https://virtualenvwrapper.readthedocs.io/). `-a .` links it to this folder, so `workon spotify` also changes into it.
    ```bash
-   python3 -m venv .venv
-   .venv/bin/pip install requests pyyaml     # pyyaml is only needed for YAML input
+   mkvirtualenv -a . -r requirements.txt spotify   # requests, pyyaml, anthropic
+   workon spotify                                  # in each new shell
    ```
 3. Put your app's Client ID in a `.env` file. See [Setting up `.env`](#setting-up-env) below.
 
@@ -42,48 +42,56 @@ Your Spotify settings go in a `.env` file in the repo folder, next to `playlist_
 
    # spotify_playbook.ipynb also needs the app secret (Settings → View client secret):
    # SPOTIFY_CLIENTSECRET=<your client secret>
+
+   # Optional: Claude-written summary in `info` (key from https://platform.claude.com)
+   # ANTHROPIC_API_KEY=<your Anthropic API key>
    ENV
    chmod 600 .env
    ```
 3. Check that it's picked up and ignored:
    ```bash
-   .venv/bin/python playlist_generator.py list     # signs in on first run
+   python playlist_generator.py list     # signs in on first run
    git check-ignore .env                            # prints ".env" if it's ignored
    ```
 
 How it's read:
 
 - `playlist_generator.py` loads `.env` from its own folder automatically, so it works from any directory.
-- A variable already set in your shell takes priority over `.env`. This lets you try another app with `SPOTIFY_CLIENT_ID=... .venv/bin/python playlist_generator.py list`.
+- A variable already set in your shell takes priority over `.env`. This lets you try another app with `SPOTIFY_CLIENT_ID=... python playlist_generator.py list`.
 - Format: one `KEY=value` per line. Lines starting with `#` are comments; quotes and a leading `export ` are allowed.
-- The Client ID isn't a password, but the Client Secret is. Keep `.env` out of git, screenshots and chats.
+- `ANTHROPIC_API_KEY` is only used by `info` for its AI summary. Without it, `info` still prints the stats and tracklist.
+- The Client ID isn't a password, but the Client Secret and the Anthropic API key are. Keep `.env` out of git, screenshots and chats.
 
 ### Commands
 
 ```bash
 # Preview what would be added (no sign-in, nothing changes)
-.venv/bin/python playlist_generator.py create party_2026.yaml --dry-run
+python playlist_generator.py create party_2026.yaml --dry-run
 
 # Create the playlist
-.venv/bin/python playlist_generator.py create party_2026.yaml
+python playlist_generator.py create party_2026.yaml
 
 # Update an existing playlist with the same name in place (keeps its link)
-.venv/bin/python playlist_generator.py create party_2026.yaml --replace
+python playlist_generator.py create party_2026.yaml --replace
 
 # Check the playlist on Spotify matches the file; prints it by section with lengths
-.venv/bin/python playlist_generator.py check party_2026.yaml
+python playlist_generator.py check party_2026.yaml
+
+# Summary (length, tracks, artists, years), AI-written overview and full tracklist
+python playlist_generator.py info "Party 2026"           # --no-ai to skip the overview
 
 # List your playlists (--all includes ones you follow, --filter TEXT, --json)
-.venv/bin/python playlist_generator.py list
+python playlist_generator.py list
 
 # Remove a playlist by name, ID or link (asks first unless --yes)
-.venv/bin/python playlist_generator.py delete "Party 2026"
+python playlist_generator.py delete "Party 2026"
 ```
 
 | Command | What it does |
 |---|---|
 | `create FILE` | Builds a playlist in file order. Stops with an error if you already own a playlist with that name, unless you pass `--replace` (swap its tracks, keep its link) or `--allow-duplicate-name`. Every track is looked up before anything changes, and at the end it lists any it couldn't add. Other options: `--name`, `--description`, `--public`. |
 | `check FILE` | Compares the Spotify playlist with the file track by track, using exact track IDs. Prints the tracklist by section with each section's track count and running time, and marks mismatches with ✗. Exits with code 1 on a mismatch. |
+| `info TARGET` | Shows a playlist's link, owner, visibility, description, track and artist counts, total and average length, shortest and longest tracks, top artists and album years by decade, a short AI-written overview (mood, arc, standout moments), then the full tracklist with lengths and years. `TARGET` is a name, ID or link. Album years come from the album on Spotify, so remasters and compilations can show a later year. The overview uses Claude Opus 5.5 through the Anthropic API when `ANTHROPIC_API_KEY` is set (see [Setting up `.env`](#setting-up-env)); each run is a small, billed API call. `--no-ai` skips it. |
 | `list` | Shows your playlists with track counts, visibility and IDs. |
 | `delete TARGET` | Removes a playlist from your library. Spotify has no hard delete; you can recover a removed playlist from your account page (*Recover playlists*). Use `--all-matches` when several playlists share a name. |
 
@@ -163,7 +171,8 @@ This part analyses your own listening, based on [this approach](https://github.c
 ### Running it
 
 ```bash
-.venv/bin/pip install jupyter spotipy pandas matplotlib wordcloud
+workon spotify
+pip install jupyter spotipy pandas matplotlib wordcloud
 set -a; source .env; set +a          # export the .env settings to Jupyter
-.venv/bin/jupyter notebook spotify_playbook.ipynb
+jupyter notebook spotify_playbook.ipynb
 ```

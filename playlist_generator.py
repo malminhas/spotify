@@ -7,6 +7,8 @@ Commands
   list             List playlists you own (use --all to include followed ones).
   delete TARGET    Remove a playlist (by name, ID, URI or link) from your library.
   check FILE       Check the Spotify playlist matches the file; prints it by section.
+  info TARGET      Summary (length, tracks, artists, years), an AI-written overview
+                   (needs ANTHROPIC_API_KEY) and the full tracklist.
 
 Examples
   python playlist_generator.py create party_2026.yaml
@@ -14,13 +16,15 @@ Examples
   python playlist_generator.py create party_2026.yaml --name "Party 2026 v2" --public
   python playlist_generator.py list
   python playlist_generator.py check party_2026.yaml
+  python playlist_generator.py info "Party 2026"
   python playlist_generator.py delete "Party 2026"
   python playlist_generator.py delete https://open.spotify.com/playlist/1ks0R4jGZ8iGGrpJSzilch --yes
 
 One-off setup
   1. https://developer.spotify.com/dashboard → Create app → choose "Web API".
      Redirect URI: http://127.0.0.1:8888/callback  (must match exactly)
-  2. pip install requests pyyaml      (pyyaml only needed for YAML input)
+  2. pip install requests pyyaml anthropic   (pyyaml only for YAML input,
+                                              anthropic only for info's AI summary)
   3. Put SPOTIFY_CLIENT_ID=<your app's client id> in a .env file next to this
      script (git-ignored), or export it in your shell.
 
@@ -64,6 +68,7 @@ Notes
 """
 
 import argparse
+import collections
 import base64
 import hashlib
 import http.server
@@ -73,6 +78,7 @@ import os
 import re
 import secrets
 import sys
+import textwrap
 import threading
 import time
 import urllib.parse
@@ -454,26 +460,34 @@ def cmd_list(args):
               f"{vis}  {p['id']}")
 
 
+def find_playlists(sp, target: str) -> list:
+    """Playlists in your library matching a name, ID, URI or link."""
+    kind, sid = parse_link(target)
+    if kind != "playlist" and re.fullmatch(r"[A-Za-z0-9]{22}", target):
+        kind, sid = "playlist", target
+    if kind == "playlist":
+        return [p for p in sp.my_playlists(include_followed=True) if p["id"] == sid] \
+            or [{"id": sid, "name": sid}]
+    matches = [p for p in sp.my_playlists(include_followed=True) if p.get("name") == target]
+    if not matches:
+        sys.exit(f"No playlist named '{target}'. Run 'list' to see names and IDs.")
+    return matches
+
+
+def exit_if_ambiguous(matches: list, target: str, hint: str):
+    if len(matches) > 1:
+        print(f"{len(matches)} playlists are called '{target}':")
+        for p in matches:
+            print(f"  {p['id']}  {count_items(p)} tracks")
+        sys.exit(hint)
+
+
 def cmd_delete(args):
     sp = Spotify(get_access_token(client_id()))
-    kind, sid = parse_link(args.target)
-    if kind == "playlist":
-        matches = [p for p in sp.my_playlists(include_followed=True) if p["id"] == sid]
-        if not matches:
-            matches = [{"id": sid, "name": sid}]
-    elif re.fullmatch(r"[A-Za-z0-9]{22}", args.target):
-        matches = [p for p in sp.my_playlists(include_followed=True) if p["id"] == args.target] \
-            or [{"id": args.target, "name": args.target}]
-    else:
-        matches = [p for p in sp.my_playlists(include_followed=True)
-                   if p.get("name") == args.target]
-        if not matches:
-            sys.exit(f"No playlist named '{args.target}'. Run 'list' to see names and IDs.")
-        if len(matches) > 1 and not args.all_matches:
-            print(f"{len(matches)} playlists are called '{args.target}':")
-            for p in matches:
-                print(f"  {p['id']}  {count_items(p)} tracks")
-            sys.exit("Delete one by ID, or pass --all-matches to remove them all.")
+    matches = find_playlists(sp, args.target)
+    if not args.all_matches:
+        exit_if_ambiguous(matches, args.target,
+                          "Delete one by ID, or pass --all-matches to remove them all.")
 
     for p in matches:
         if not args.yes:
@@ -536,6 +550,129 @@ def cmd_check(args):
     print(f"OK: Spotify playlist matches {args.file}.")
 
 
+def cmd_info(args):
+    sp = Spotify(get_access_token(client_id()))
+    matches = find_playlists(sp, args.target)
+    exit_if_ambiguous(matches, args.target, "Pass the ID or link of the one you want.")
+    pl = matches[0]
+    try:   # fuller details (description etc.) when the API allows it
+        pl = {**pl, **sp.call("GET", f"/playlists/{pl['id']}", params={"fields": "name,description,public,owner,external_urls,id"})}
+    except SpotifyError:
+        pass
+    tracks = sp.playlist_tracks(pl["id"])
+
+    def artists(t):
+        return ", ".join(a["name"] for a in t.get("artists", []))
+
+    def year(t):
+        return (t.get("album", {}).get("release_date") or "")[:4]
+
+    print(pl.get("name"))
+    print(f"  {playlist_url(pl)}")
+    print(f"  Owner:        {pl.get('owner', {}).get('display_name') or pl.get('owner', {}).get('id', '?')}")
+    print(f"  Visibility:   {'public' if pl.get('public') else 'private'}")
+    if pl.get("description"):
+        print(f"  Description:  {pl['description']}")
+    if not tracks:
+        print("  Tracks:       0 (or not readable: Spotify only lets apps read playlists you own)")
+        return
+
+    total = sum(t.get("duration_ms", 0) for t in tracks)
+    shortest = min(tracks, key=lambda t: t.get("duration_ms", 0))
+    longest = max(tracks, key=lambda t: t.get("duration_ms", 0))
+    by_artist = collections.Counter(a["name"] for t in tracks for a in t.get("artists", []))
+    years = sorted(int(y) for t in tracks if (y := year(t)).isdigit())
+    decades = collections.Counter(f"{y // 10 * 10}s" for y in years)
+
+    print(f"  Tracks:       {len(tracks)} ({len(by_artist)} artists)")
+    print(f"  Length:       {fmt_ms(total)} (average {fmt_ms(total // len(tracks))} per track)")
+    print(f"  Shortest:     {artists(shortest)} – {shortest['name']} ({fmt_ms(shortest['duration_ms'])})")
+    print(f"  Longest:      {artists(longest)} – {longest['name']} ({fmt_ms(longest['duration_ms'])})")
+    print(f"  Top artists:  " + ", ".join(f"{a} ({n})" for a, n in by_artist.most_common(5)))
+    if years:
+        print(f"  Album years:  {years[0]}–{years[-1]}; "
+              + ", ".join(f"{d} {n}" for d, n in sorted(decades.items())))
+        print("                (from the album on Spotify, so remasters can show a later year)")
+
+    if not args.no_ai:
+        ai_summary(pl, tracks, artists, year)
+
+    print("\nTracklist")
+    for i, t in enumerate(tracks, 1):
+        name = f"{artists(t)} – {t.get('name')}"
+        print(f"  {i:>3}. {name[:68]:<68} {fmt_ms(t.get('duration_ms', 0)):>6}  {year(t)}")
+
+
+AI_MODEL = "claude-opus-5-5"
+AI_SYSTEM = (
+    "You write short, specific overviews of music playlists for the person who made them. "
+    "Work only from the tracklist you are given; don't invent facts about tracks you aren't sure of. "
+    "Write plain text for a terminal: no markdown, headings or bullet points."
+)
+
+
+def ai_summary(pl: dict, tracks: list, artists, year):
+    """Print a Claude-written overview of the playlist; never fails the info command."""
+    if not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
+        print("\nAI summary: skipped (add ANTHROPIC_API_KEY to .env, or pass --no-ai)")
+        return
+    try:
+        import anthropic
+    except ImportError:
+        print("\nAI summary: skipped (pip install anthropic)")
+        return
+
+    lines = [f"{i}. {artists(t)} – {t.get('name')} ({fmt_ms(t.get('duration_ms', 0))}, "
+             f"album year {year(t) or '?'})" for i, t in enumerate(tracks, 1)]
+    prompt = (
+        f"Playlist: {pl.get('name')}\n"
+        f"Description: {pl.get('description') or '(none)'}\n"
+        f"{len(tracks)} tracks, {fmt_ms(sum(t.get('duration_ms', 0) for t in tracks))} total, in play order:\n"
+        + "\n".join(lines)
+        + "\n\nAlbum years can be later than the original release because of remasters and "
+          "compilations.\n\nIn two or three short paragraphs (under 250 words), describe the "
+          "playlist's overall character: its genres and eras, how the mood and energy move "
+          "from start to finish, a few standout tracks or transitions, and the setting it suits."
+    )
+    print("Asking Claude for a summary...", end="", flush=True, file=sys.stderr)
+    try:
+        client = anthropic.Anthropic()
+        resp = client.beta.messages.create(
+            model=AI_MODEL,
+            max_tokens=16000,
+            output_config={"effort": "medium"},
+            betas=["server-side-fallback-2026-07-01"],
+            fallbacks="default",          # re-run on a fallback model if the request is declined
+            system=AI_SYSTEM,
+            messages=[{"role": "user", "content": prompt}],
+        )
+    except anthropic.AuthenticationError:
+        print("\r\033[K", end="", file=sys.stderr)
+        print("\nAI summary: skipped (Anthropic rejected the API key in ANTHROPIC_API_KEY)")
+        return
+    except anthropic.RateLimitError:
+        print("\r\033[K", end="", file=sys.stderr)
+        print("\nAI summary: skipped (Anthropic rate limit; try again shortly)")
+        return
+    except anthropic.APIStatusError as err:
+        print("\r\033[K", end="", file=sys.stderr)
+        print(f"\nAI summary: skipped (Anthropic API error {err.status_code}: {err.message})")
+        return
+    except anthropic.APIConnectionError:
+        print("\r\033[K", end="", file=sys.stderr)
+        print("\nAI summary: skipped (couldn't reach the Anthropic API)")
+        return
+    if resp.stop_reason == "refusal":
+        print("\r\033[K", end="", file=sys.stderr)
+        print("\nAI summary: skipped (the model declined this request)")
+        return
+    text = "\n".join(b.text for b in resp.content if b.type == "text").strip()
+    print("\r\033[K", end="", file=sys.stderr)
+    print("\nAI summary (Claude)")
+    for para in text.split("\n"):
+        print(textwrap.fill(para, width=90, initial_indent="  ", subsequent_indent="  ") if para.strip() else "")
+
+
 def load_dotenv(path: Path = Path(__file__).with_name(".env")):
     """Read KEY=VALUE lines from .env next to this script; real env vars win."""
     if not path.exists():
@@ -593,6 +730,11 @@ def main():
     k.add_argument("file", help="YAML (.yaml/.yml) or JSON tracklist")
     k.add_argument("--name", help="playlist name (overrides the file)")
     k.set_defaults(func=cmd_check)
+
+    n = sub.add_parser("info", help="summary and tracklist of a playlist")
+    n.add_argument("target", help="playlist name, ID, spotify:playlist: URI or open.spotify.com link")
+    n.add_argument("--no-ai", action="store_true", help="skip the Claude-written summary")
+    n.set_defaults(func=cmd_info)
 
     args = ap.parse_args()
     load_dotenv()

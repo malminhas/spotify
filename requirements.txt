@@ -1,0 +1,7 @@
+# playlist_generator.py
+requests>=2.34          # Spotify Web API calls
+pyyaml>=6.0             # YAML tracklists (not needed for JSON-only use)
+anthropic>=2.6          # info's AI summary (optional; info works without it)
+
+# spotify_playbook.ipynb: install separately if you use the notebook
+#   workon spotify && pip install jupyter spotipy pandas matplotlib wordcloud
