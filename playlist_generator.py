@@ -2,6 +2,8 @@
 """
 playlist_generator.py — build Spotify playlists from YAML or JSON tracklists.
 
+Version 1.0.0, 2026-11-08, by Mal Minhas (python playlist_generator.py -V)
+
 Commands
   create FILE      Create a playlist from a YAML/JSON tracklist, in order.
   list             List playlists you own (use --all to include followed ones).
@@ -27,7 +29,8 @@ One-off setup
   2. pip install -r requirements.txt   (requests; pyyaml for YAML input;
                                         anthropic / openai for info's AI summary)
   3. Put SPOTIFY_CLIENT_ID=<your app's client id> in a .env file next to this
-     script (git-ignored), or export it in your shell.
+     script (git-ignored), or export it in your shell. For info's AI features,
+     also add ANTHROPIC_API_KEY and/or OPENAI_API_KEY.
 
 The first run opens a browser to approve access. The refresh token is cached
 in ~/.config/spotify-playlist/token.json, so later runs don't need the browser.
@@ -41,7 +44,7 @@ Tracklist format (YAML shown; JSON with the same keys works too)
     - title: Cherry-Coloured Funk
       artist: Cocteau Twins
       style: Dream pop              # free text, for your own reference
-      section: Arrival              # free text, for your own reference
+      section: Arrival              # groups tracks in check's output
       link: https://open.spotify.com/track/37pKTyMwalomKCZjxTc2QZ
       length: "3:12"                # free text, for your own reference
       notes: anything you like
@@ -66,7 +69,24 @@ Notes
   Written for the Spotify Web API as it stands after the February 2026
   Development Mode changes: POST /me/playlists, POST /playlists/{id}/items,
   DELETE /me/library, search limit of 10. The app owner needs Premium.
+
+Release notes
+  1.0.0 (2026-11-08)  First release.
+    - create: build a playlist from a YAML/JSON tracklist in file order, from
+      track, album (disc/track filters) and playlist links or artist + title
+      search; --dry-run previews, --replace updates in place and keeps the link.
+    - check: verify the Spotify playlist matches the file, track by track,
+      printed by section with lengths; exits 1 on a mismatch.
+    - info: stats, full tracklist and an AI-written overview (Claude Opus 5.5
+      by default, or OpenAI with --model openai); --set-description writes a
+      short AI description to Spotify within its 300-character limit.
+    - list / delete: manage your playlists by name, ID or link.
+    - PKCE sign-in with a cached token; settings and API keys read from .env.
 """
+
+__version__ = "1.0.0"
+__date__ = "2026-11-08"
+__author__ = "Mal Minhas"
 
 import argparse
 import collections
@@ -840,6 +860,8 @@ def main():
     ap = argparse.ArgumentParser(
         description="Build and manage Spotify playlists from YAML/JSON tracklists.",
         formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("-V", "--version", action="version",
+                    version=f"%(prog)s {__version__} ({__date__}) by {__author__}")
     ap.add_argument("--login", action="store_true",
                     help="ignore the cached token and sign in again")
     sub = ap.add_subparsers(dest="command", required=True)

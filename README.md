@@ -2,12 +2,14 @@
 
 Various Spotify experiments:
 
-- **[`playlist_generator.py`](playlist_generator.py)**: a command-line tool that builds Spotify playlists from YAML or JSON tracklists, then lists, checks, summarises (with an optional Claude- or OpenAI-written overview) and deletes them.
+- **[`playlist_generator.py`](playlist_generator.py)**: a command-line tool that builds Spotify playlists from YAML or JSON tracklists, then lists, checks, summarises and describes them (with optional Claude- or OpenAI-written overviews and Spotify descriptions), and deletes them.
 - **[`spotify_playbook.ipynb`](spotify_playbook.ipynb)**: a Jupyter notebook that explores a playlist with `spotipy` and analyses your Spotify streaming history.
 
 ---
 
 ## Playlist generator
+
+**Version 1.0.0** (2026-11-08). Run `python playlist_generator.py -V` to see the installed version; release notes are in the script's header.
 
 `playlist_generator.py` takes a tracklist file (YAML or JSON) and creates a Spotify playlist with the tracks in file order. Tracklists are local files and are git-ignored (see [Tracklists stay local](#tracklists-stay-local)).
 
@@ -103,6 +105,14 @@ python playlist_generator.py delete "Party 2026"
 | `list` | Shows your playlists with track counts, visibility and IDs. |
 | `delete TARGET` | Removes a playlist from your library. Spotify has no hard delete; you can recover a removed playlist from your account page (*Recover playlists*). Use `--all-matches` when several playlists share a name. |
 
+Global options go before the command:
+
+| Option | What it does |
+|---|---|
+| `-V`, `--version` | Prints the version, release date and author, e.g. `playlist_generator.py 1.0.0 (2026-11-08) by Mal Minhas`. |
+| `--login` | Ignores the cached Spotify token and signs in again, e.g. `python playlist_generator.py --login list`. |
+| `-h`, `--help` | Lists the commands; `python playlist_generator.py COMMAND --help` lists a command's options. |
+
 ### AI summary models
 
 `info` can ask Claude (Anthropic) or an OpenAI model to write its overview. Pick one with `--model`:
@@ -126,8 +136,8 @@ How it works:
 - **The model name picks the provider:** anything starting `claude-` goes to Anthropic; `gpt-`, `chatgpt-` or `o` followed by a digit goes to OpenAI. Other names are rejected with a short message. Shortcuts aren't case-sensitive.
 - **Same prompt for both:** the playlist's name, description and full tracklist (artist, title, length, album year), with a request for two or three short paragraphs on genres and eras, the mood and energy arc, standout tracks or transitions, and the setting it suits.
 - **APIs used:** Claude through the Anthropic Messages API at `medium` effort; OpenAI through the Responses API. On Claude Fable 5.1, Opus 5.5, Opus 5 and Sonnet 5.5, Anthropic's server-side fallback is on: if the model declines the request, Anthropic re-runs it on its recommended fallback model.
-- **Failures never break `info`:** a missing or rejected key, an unknown model, a rate limit, a network problem or a declined request prints `AI summary: skipped (…)` with the reason, and the stats and tracklist still appear.
-- **Cost and privacy:** each run is one billed API call, typically a few cents, to the provider you chose. The playlist's name, description and tracklist are sent to that provider; nothing else from your Spotify account is.
+- **Failures don't break the overview:** a missing or rejected key, an unknown model, a rate limit, a network problem or a declined request prints `AI summary: skipped (…)` with the reason, and the stats and tracklist still appear. `--set-description` is stricter, because you asked for a change: if the AI step fails, it stops with `Description not changed: …` and exit code 1, and Spotify is left as it was.
+- **Cost and privacy:** the overview is one billed API call, typically a few cents, to the provider you chose; `--set-description` adds a second (use `--no-ai` with it to make just one). The playlist's name, description and tracklist are sent to that provider; nothing else from your Spotify account is.
 
 To see which OpenAI models your key can use:
 
@@ -201,6 +211,17 @@ Only `link` (or `title` and `artist` when there's no link) decides what gets add
 ### Tracklists stay local
 
 `*.yaml`, `*.yml` and `*.json` files are git-ignored, so your tracklists and playlist backups stay on your machine. To share one, add it with `git add -f FILE`.
+
+### Tests
+
+`tests/test_playlist_generator.py` checks the generator without touching Spotify, Anthropic or OpenAI: it uses a fake Spotify client and fake AI replies, and builds its own sample tracklists in a temporary folder. It covers tracklist loading, `create --replace` (batching and track order), model routing, description cleaning and saving, the `--set-description` flow and `-V`.
+
+```bash
+workon spotify
+python -m unittest discover tests        # add -v to list each test
+```
+
+It needs only the packages in `requirements.txt`.
 
 ---
 
