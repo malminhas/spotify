@@ -1,0 +1,481 @@
+{
+  "name": "Party 2026",
+  "description": "Psych rock to ambient techno, in five phases.",
+  "public": false,
+  "tracks": [
+    {
+      "title": "Cherry-Coloured Funk",
+      "artist": "Cocteau Twins",
+      "style": "Dream pop",
+      "section": "Arrival",
+      "link": "https://open.spotify.com/track/37pKTyMwalomKCZjxTc2QZ",
+      "length": "3:12"
+    },
+    {
+      "title": "Song to the Siren",
+      "artist": "This Mortal Coil",
+      "style": "Ethereal / 4AD",
+      "section": "Arrival",
+      "link": "https://open.spotify.com/track/26uVYNtKahTAcZMDWiuBnt",
+      "length": "3:31"
+    },
+    {
+      "title": "Fearless",
+      "artist": "Pink Floyd",
+      "style": "Psych rock",
+      "section": "Arrival",
+      "link": "https://open.spotify.com/track/7AalBKBoLDR4UmRYRJpdbj",
+      "length": "6:08"
+    },
+    {
+      "title": "Jogging",
+      "artist": "Richard Dawson",
+      "style": "Experimental folk",
+      "section": "Arrival",
+      "link": "https://open.spotify.com/track/3TYTZkdgqwkNIA94nKGt1B",
+      "length": "6:38"
+    },
+    {
+      "title": "Heaven or Las Vegas",
+      "artist": "Cocteau Twins",
+      "style": "Dream pop",
+      "section": "Arrival",
+      "link": "https://open.spotify.com/track/0AxZUYeQ9bZwSdt1LmZuok",
+      "length": "4:58"
+    },
+    {
+      "title": "By This River",
+      "artist": "Brian Eno",
+      "style": "Ambient pop",
+      "section": "Arrival",
+      "link": "https://open.spotify.com/track/13b87C9TNBFKJAi9YB4Rr8"
+    },
+    {
+      "title": "Sketch for Summer",
+      "artist": "The Durutti Column",
+      "style": "Post-punk / ambient guitar",
+      "section": "Arrival",
+      "link": "https://open.spotify.com/track/2oeLt7N1amHZiev27FvKE2",
+      "length": "2:58",
+      "notes": "Pairs with By This River"
+    },
+    {
+      "title": "Fade Into You",
+      "artist": "Mazzy Star",
+      "style": "Dream pop",
+      "section": "Arrival",
+      "link": "https://open.spotify.com/track/1LzNfuep1bnAUR9skqdHCK"
+    },
+    {
+      "title": "Sweet Jane",
+      "artist": "Cowboy Junkies",
+      "style": "Slowcore",
+      "section": "Arrival",
+      "link": "https://open.spotify.com/track/4xDh3M3vz55WXyv30Lc6r5",
+      "length": "3:35",
+      "notes": "Former stand-in for Fade Into You; set skip to false to add it too",
+      "skip": true
+    },
+    {
+      "title": "Expecting to Fly",
+      "artist": "Buffalo Springfield",
+      "style": "Orchestral psych",
+      "section": "Arrival",
+      "link": "https://open.spotify.com/track/3uVmR6oQq0NluVZXkipKHV",
+      "length": "3:44"
+    },
+    {
+      "title": "Alison",
+      "artist": "Slowdive",
+      "style": "Shoegaze",
+      "section": "Arrival",
+      "link": "https://open.spotify.com/track/33HRECrmuelZxOpid6XTNX",
+      "length": "3:51"
+    },
+    {
+      "title": "Planet Caravan",
+      "artist": "Black Sabbath",
+      "style": "Psych rock",
+      "section": "Psych heads",
+      "link": "https://open.spotify.com/track/4VAAXfLf8YPiO1LzyYnMKb",
+      "length": "4:28"
+    },
+    {
+      "title": "Solitude",
+      "artist": "Black Sabbath",
+      "style": "Psych rock",
+      "section": "Psych heads",
+      "link": "https://open.spotify.com/track/6VfoT86lDJ18YhLCDHKgEL",
+      "length": "5:02"
+    },
+    {
+      "title": "You're Gonna Miss Me",
+      "artist": "13th Floor Elevators",
+      "style": "Garage psych",
+      "section": "Psych heads",
+      "link": "https://open.spotify.com/track/34miSNKQ0xN7EG8zzzaFzI",
+      "length": "2:27"
+    },
+    {
+      "title": "Anemone",
+      "artist": "The Brian Jonestown Massacre",
+      "style": "Neo-psych",
+      "section": "Psych heads",
+      "link": "https://open.spotify.com/track/5sHEmVAiepdGCj0rHtLYFO",
+      "length": "5:34"
+    },
+    {
+      "title": "Ladies and Gentlemen We Are Floating in Space",
+      "artist": "Spiritualized",
+      "style": "Space rock",
+      "section": "Psych heads",
+      "link": "https://open.spotify.com/track/0fOjUafaAhJV16oRBgCtz7",
+      "length": "3:54"
+    },
+    {
+      "title": "Come Together",
+      "artist": "Spiritualized",
+      "style": "Space rock",
+      "section": "Psych heads",
+      "link": "https://open.spotify.com/track/5lI9y4ZbpBsNJp4qd3ewzc",
+      "length": "4:41"
+    },
+    {
+      "title": "Interstellar Overdrive",
+      "artist": "Pink Floyd",
+      "style": "Psych rock",
+      "section": "Psych heads",
+      "link": "https://open.spotify.com/track/3xyTufSSGLP3oZnomceAVW",
+      "length": "9:41"
+    },
+    {
+      "title": "Moonchild",
+      "artist": "King Crimson",
+      "style": "Prog",
+      "section": "Psych heads",
+      "link": "https://open.spotify.com/track/0dRuTDUctXcQuYV7j6mhb2",
+      "length": "12:13",
+      "notes": "Fade out after the song section (about 2:30)"
+    },
+    {
+      "title": "The Killing Moon",
+      "artist": "Echo & the Bunnymen",
+      "style": "Post-punk",
+      "section": "Psych heads",
+      "link": "https://open.spotify.com/track/35E2eKIEXXnP5q9L51iOAk",
+      "length": "5:48"
+    },
+    {
+      "title": "Hit the North (Part 1)",
+      "artist": "The Fall",
+      "style": "Post-punk",
+      "section": "Psych heads",
+      "link": "https://open.spotify.com/track/0XciPb5F3Sm9eDOfUVLDhO",
+      "length": "4:01"
+    },
+    {
+      "title": "Totally Wired",
+      "artist": "The Fall",
+      "style": "Post-punk",
+      "section": "Psych heads",
+      "link": "https://open.spotify.com/track/4MW3570CIk1qrWr7qBfrCg",
+      "length": "3:25"
+    },
+    {
+      "title": "Cortez the Killer",
+      "artist": "Neil Young & Crazy Horse",
+      "style": "Guitar rock",
+      "section": "Psych heads",
+      "link": "https://open.spotify.com/track/3ZPLFD6mbw6hhu3g6S4EGl",
+      "length": "7:30"
+    },
+    {
+      "title": "Movin' On Up",
+      "artist": "Primal Scream",
+      "style": "Gospel rock",
+      "section": "Psych heads",
+      "link": "https://open.spotify.com/track/67ncFJWaIbJdqZl1bpEppz",
+      "length": "3:48"
+    },
+    {
+      "title": "Big City (Everybody I Know Can Be Found Here)",
+      "artist": "Spacemen 3",
+      "style": "Space rock",
+      "section": "Psych heads",
+      "link": "https://open.spotify.com/track/5Uyu7bP68T17mihXuCouCm",
+      "length": "10:51"
+    },
+    {
+      "title": "Hallogallo",
+      "artist": "Neu!",
+      "style": "Krautrock / motorik",
+      "section": "The hinge",
+      "link": "https://open.spotify.com/track/5c1wCE2aO0YkfNYDAMslIZ",
+      "length": "10:07"
+    },
+    {
+      "title": "French Disko",
+      "artist": "Stereolab",
+      "style": "Motorik indie",
+      "section": "The hinge",
+      "link": "https://open.spotify.com/track/4Zb88sF1Qj778KV5lstVxT",
+      "length": "3:36"
+    },
+    {
+      "title": "Death Disco",
+      "artist": "Public Image Ltd",
+      "style": "Dub post-punk",
+      "section": "The hinge",
+      "link": "https://open.spotify.com/track/62sCVkMkvNnTE5ItE4eyOw",
+      "length": "6:44",
+      "notes": "Original 12\" mix (Metal Box Super Deluxe)"
+    },
+    {
+      "title": "Visions of You",
+      "artist": "Jah Wobble's Invaders of the Heart",
+      "style": "Dub / world dance",
+      "section": "The hinge",
+      "link": "https://open.spotify.com/track/3sRfwJamrDcMw4KCegnxul",
+      "length": "5:36",
+      "notes": "Feat. Sinéad O'Connor; Wobble was PiL's bassist, so it pairs with Death Disco"
+    },
+    {
+      "title": "Fools Gold",
+      "artist": "The Stone Roses",
+      "style": "Madchester",
+      "section": "The hinge",
+      "link": "https://open.spotify.com/track/3fqb4dIuuFpltgkyhI7cIL",
+      "length": "9:54"
+    },
+    {
+      "title": "Loaded",
+      "artist": "Primal Scream",
+      "style": "Indie dance",
+      "section": "The hinge",
+      "link": "https://open.spotify.com/track/4909RzlrcQf2Ikk6P4reF1",
+      "length": "7:00"
+    },
+    {
+      "title": "Higher Than the Sun",
+      "artist": "Primal Scream",
+      "style": "Dub / ambient house",
+      "section": "The hinge",
+      "link": "https://open.spotify.com/track/23UR03W03HWH1HFcF4rz9Z",
+      "length": "3:37"
+    },
+    {
+      "title": "Floatation",
+      "artist": "The Grid",
+      "style": "Balearic ambient house",
+      "section": "The hinge",
+      "link": "https://open.spotify.com/track/4ef2Dr8EIWvdwvPWeM9VlG",
+      "length": "5:06",
+      "notes": "Stand-in for Sabres of Paradise – Smokebelch II (not on Spotify)"
+    },
+    {
+      "title": "Stella",
+      "artist": "Ultramarine",
+      "style": "Ambient house",
+      "section": "The hinge",
+      "link": "https://open.spotify.com/track/46BuxEJZGqIqA5fEdlmmUp",
+      "length": "4:25"
+    },
+    {
+      "title": "Strings of Life",
+      "artist": "Rhythim Is Rhythim",
+      "style": "Detroit techno",
+      "section": "Peak",
+      "link": "https://open.spotify.com/track/0vBg4JYmBIyNgk1R3R0cX6",
+      "length": "6:19"
+    },
+    {
+      "title": "No UFOs (Vocal)",
+      "artist": "Model 500",
+      "style": "Detroit techno",
+      "section": "Peak",
+      "link": "https://open.spotify.com/track/1Ro7L7RPp5P8heOfW4EQKA",
+      "length": "4:19"
+    },
+    {
+      "title": "Good Life",
+      "artist": "Inner City",
+      "style": "Detroit house",
+      "section": "Peak",
+      "link": "https://open.spotify.com/track/67zr6xdiSAhsuyvL2Dczc1",
+      "length": "3:16"
+    },
+    {
+      "title": "Hi-Tech Jazz",
+      "artist": "Galaxy 2 Galaxy",
+      "style": "Detroit techno",
+      "section": "Peak",
+      "link": "https://open.spotify.com/track/2ZKF8jc6zt1jb28AXZWnfW",
+      "length": "5:36"
+    },
+    {
+      "title": "At Les",
+      "artist": "Carl Craig",
+      "style": "Detroit techno",
+      "section": "Peak",
+      "link": "https://open.spotify.com/track/0LBTxmhGhEXbQQtmse1t4r",
+      "length": "6:09"
+    },
+    {
+      "title": "LFO (Leeds Warehouse Mix)",
+      "artist": "LFO",
+      "style": "Bleep techno / Warp",
+      "section": "Peak",
+      "link": "https://open.spotify.com/track/5AMGYRhiqZoCYkJEK3yqgi",
+      "length": "5:19"
+    },
+    {
+      "title": "Chime (12\" Version)",
+      "artist": "Orbital",
+      "style": "UK techno",
+      "section": "Peak",
+      "link": "https://open.spotify.com/track/4QUL2l7vZqU1ANZSpDMzov",
+      "length": "12:42",
+      "notes": "2024 remaster"
+    },
+    {
+      "title": "Song of Life",
+      "artist": "Leftfield",
+      "style": "Progressive house",
+      "section": "Peak",
+      "link": "https://open.spotify.com/track/0NJqEnuUjTsUUPOBzVBjYC",
+      "length": "9:09"
+    },
+    {
+      "title": "Belfast",
+      "artist": "Orbital",
+      "style": "UK techno",
+      "section": "Peak",
+      "link": "https://open.spotify.com/track/2CH4mc6qWAI3ejAdqpON9B",
+      "length": "8:11"
+    },
+    {
+      "title": "Halcyon + On + On",
+      "artist": "Orbital",
+      "style": "UK techno",
+      "section": "Peak",
+      "link": "https://open.spotify.com/track/5xcunlfaZvD9BDQsLONI7A",
+      "length": "9:27"
+    },
+    {
+      "title": "Rez",
+      "artist": "Underworld",
+      "style": "Progressive techno",
+      "section": "Peak",
+      "link": "https://open.spotify.com/track/1a6ktLZUBl9Ep9t8Qkz7Tj",
+      "length": "9:57",
+      "notes": "Remastered studio version (Dubnobasswithmyheadman 20th anniversary)"
+    },
+    {
+      "title": "Little Fluffy Clouds",
+      "artist": "The Orb",
+      "style": "Ambient house",
+      "section": "Late night",
+      "link": "https://open.spotify.com/track/7FVvHGA46aU7mkwx4iHMRE",
+      "length": "4:27",
+      "notes": "Album version (Adventures Beyond the Ultraworld)"
+    },
+    {
+      "title": "Autumn Leaves (Irresistible Force Mix)",
+      "artist": "Coldcut",
+      "style": "Ambient",
+      "section": "Late night",
+      "link": "https://open.spotify.com/track/757sQKQDEKsyaAbkafkFfg",
+      "length": "7:06",
+      "notes": "Remix by The Irresistible Force (Mixmaster Morris)"
+    },
+    {
+      "title": "Raxmus",
+      "artist": "The Black Dog",
+      "style": "IDM / Warp",
+      "section": "Late night",
+      "link": "https://open.spotify.com/track/126vgRdfnOEPCeC2DmUiYU",
+      "length": "3:03"
+    },
+    {
+      "title": "Xtal",
+      "artist": "Aphex Twin",
+      "style": "Ambient techno",
+      "section": "Late night",
+      "link": "https://open.spotify.com/track/7o2AeQZzfCERsRmOM86EcB",
+      "length": "4:54"
+    },
+    {
+      "title": "Ageispolis",
+      "artist": "Aphex Twin",
+      "style": "Ambient techno",
+      "section": "Late night",
+      "link": "https://open.spotify.com/track/7KRQoq9GeWeCm0ZAXg5XMb",
+      "length": "5:23"
+    },
+    {
+      "title": "Papua New Guinea",
+      "artist": "The Future Sound of London",
+      "style": "Ambient breakbeat",
+      "section": "Late night",
+      "link": "https://open.spotify.com/track/5zh23oMbATQlWbwEe5U0KG",
+      "length": "6:45"
+    },
+    {
+      "title": "14:31",
+      "artist": "Global Communication",
+      "style": "Ambient",
+      "section": "Late night",
+      "link": "https://open.spotify.com/track/31NqxiLbyEYuH2voZoHk61",
+      "length": "14:31"
+    },
+    {
+      "title": "Bike",
+      "artist": "Autechre",
+      "style": "IDM / Warp",
+      "section": "Late night",
+      "link": "https://open.spotify.com/track/3Om7xxNAn64xJOuU9WVKtp",
+      "length": "8:00"
+    },
+    {
+      "title": "An Ending (Ascent)",
+      "artist": "Brian Eno",
+      "style": "Ambient",
+      "section": "Late night",
+      "link": "https://open.spotify.com/track/1vgSaC0BPlL6LEm4Xsx59J",
+      "length": "4:26",
+      "notes": "Original from Apollo (2005 remaster)"
+    },
+    {
+      "title": "Chukhung",
+      "artist": "Biosphere",
+      "style": "Arctic ambient",
+      "section": "Late night (overflow)",
+      "link": "https://open.spotify.com/album/5QIf4hNIAksV1uMCXHVkAZ",
+      "track_numbers": [
+        3
+      ],
+      "notes": "Stand-in for The KLF – Chill Out. One track from Substrata; change the number to pick another"
+    },
+    {
+      "title": "Sing Swan Song",
+      "artist": "Can",
+      "style": "Krautrock",
+      "section": "Reserve",
+      "skip": true
+    },
+    {
+      "title": "Maggot Brain",
+      "artist": "Funkadelic",
+      "style": "Psych funk",
+      "section": "Reserve",
+      "skip": true
+    },
+    {
+      "title": "Harvest Moon",
+      "artist": "Neil Young",
+      "style": "Americana",
+      "section": "Reserve",
+      "skip": true
+    }
+  ]
+}
