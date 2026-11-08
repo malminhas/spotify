@@ -9,6 +9,7 @@ Commands
   check FILE       Check the Spotify playlist matches the file; prints it by section.
   info TARGET      Summary (length, tracks, artists, years), an AI-written overview
                    (Claude or OpenAI, chosen with --model) and the full tracklist.
+                   --set-description writes a short AI description to Spotify.
 
 Examples
   python playlist_generator.py create party_2026.yaml
@@ -71,6 +72,7 @@ import argparse
 import collections
 import base64
 import hashlib
+import html
 import http.server
 import itertools
 import json
@@ -551,6 +553,10 @@ def cmd_check(args):
 
 
 def cmd_info(args):
+    if args.file and not args.set_description:
+        sys.exit("--file is only used with --set-description.")
+    if args.file:
+        load_tracklist(args.file)          # fail early on a bad file, before any API calls
     sp = Spotify(get_access_token(client_id()))
     matches = find_playlists(sp, args.target)
     exit_if_ambiguous(matches, args.target, "Pass the ID or link of the one you want.")
@@ -601,6 +607,9 @@ def cmd_info(args):
     for i, t in enumerate(tracks, 1):
         name = f"{artists(t)} – {t.get('name')}"
         print(f"  {i:>3}. {name[:68]:<68} {fmt_ms(t.get('duration_ms', 0)):>6}  {year(t)}")
+
+    if args.set_description:
+        set_description(sp, pl, tracks, artists, year, args)
 
 
 AI_MODEL = "claude-opus-5-5"   # default for info's summary; override with --model
@@ -681,28 +690,123 @@ def openai_text(model: str, prompt: str) -> str:
     return resp.output_text.strip()
 
 
+def playlist_brief(pl: dict, tracks: list, artists, year) -> str:
+    """The playlist as plain text for an AI prompt."""
+    lines = [f"{i}. {artists(t)} – {t.get('name')} ({fmt_ms(t.get('duration_ms', 0))}, "
+             f"album year {year(t) or '?'})" for i, t in enumerate(tracks, 1)]
+    return (f"Playlist: {pl.get('name')}\n"
+            f"Description: {pl.get('description') or '(none)'}\n"
+            f"{len(tracks)} tracks, {fmt_ms(sum(t.get('duration_ms', 0) for t in tracks))} total, in play order:\n"
+            + "\n".join(lines)
+            + "\n\nAlbum years can be later than the original release because of remasters and "
+              "compilations.\n\n")
+
+
+def ask_ai(model: str, prompt: str) -> str:
+    provider = ai_provider(model)
+    if not provider:
+        raise AISkipped(f"'{model}' isn't a Claude (claude-...) or OpenAI (gpt-..., o...) model")
+    return (claude_text if provider == "anthropic" else openai_text)(model, prompt)
+
+
+# Spotify doesn't document description rules; these follow the strictest client behaviour
+# reported (300 characters in some apps, up to 512 in others), as a single plain-text line.
+DESC_MAX = 300
+
+
+def clean_description(text: str, limit: int = DESC_MAX) -> str:
+    """Make text safe for a Spotify playlist description: one plain line, <= limit characters."""
+    text = html.unescape(text)
+    text = "".join(ch if ch.isprintable() else " " for ch in text)      # newlines, tabs, controls
+    text = re.sub(r"</?[A-Za-z][^<>]*>", " ", text).replace("<", "").replace(">", "")  # no HTML
+    text = re.sub(r"[*_#`]+", "", text)                                   # no Markdown
+    text = re.sub(r"\s+", " ", text).strip().strip("\"'“”‘’").strip()
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    end = max(cut.rfind(". "), cut.rfind("! "), cut.rfind("? "))
+    if cut.endswith((".", "!", "?")):
+        end = len(cut) - 1
+    if end >= limit // 2:                  # keep whole sentences when that keeps most of it
+        return cut[:end + 1]
+    return cut[:limit - 1].rsplit(" ", 1)[0].rstrip(",;:–- ") + "…"
+
+
+def set_description(sp, pl: dict, tracks: list, artists, year, args):
+    """Generate a short AI description, confirm it, write it to Spotify (and optionally a file)."""
+    if pl.get("owner", {}).get("id") != sp.me()["id"]:
+        sys.exit("You can only change the description of playlists you own.")
+    model = AI_DEFAULTS.get(args.model.lower(), args.model)
+    prompt = (playlist_brief(pl, tracks, artists, year)
+              + f"Write a description for this playlist to show on Spotify: one or two sentences, "
+                f"at most {DESC_MAX - 50} characters, capturing its sound and journey. Plain text "
+                "only: no quotes around it, no hashtags, emoji, line breaks or HTML. Reply with "
+                "the description and nothing else.")
+    print(f"Asking {model} for a description...", end="", flush=True, file=sys.stderr)
+    try:
+        text = clean_description(ask_ai(model, prompt))
+    except AISkipped as why:
+        print("\r\033[K", end="", file=sys.stderr)
+        sys.exit(f"Description not changed: {why}.")
+    print("\r\033[K", end="", file=sys.stderr)
+    if not text:
+        sys.exit("Description not changed: the model returned no usable text.")
+
+    print(f"\nNew Spotify description ({len(text)}/{DESC_MAX} characters, by {model}):\n  {text}")
+    if pl.get("description"):
+        print(f"Replaces:\n  {html.unescape(pl['description'])}")
+    if not args.yes:
+        answer = input("Set this as the playlist description? [y/N] ")
+        if answer.strip().lower() not in ("y", "yes"):
+            print("Description not changed.")
+            return
+
+    sp.call("PUT", f"/playlists/{pl['id']}", json={"description": text})
+    stored = sp.call("GET", f"/playlists/{pl['id']}", params={"fields": "description"}).get("description", "")
+    if html.unescape(stored or "") == text:
+        print("Description updated on Spotify.")
+    else:
+        print(f"Description sent, but Spotify now shows:\n  {html.unescape(stored or '(empty)')}\n"
+              "(Spotify can take a moment to update, or may have changed the text.)")
+    if args.file:
+        save_description(args.file, text)
+        print(f"Saved it to {args.file} too, so 'create --replace' keeps it.")
+    else:
+        print("Note: the next 'create --replace' will put back the file's description; "
+              "pass --file FILE to save it there as well.")
+
+
+def save_description(path: str, text: str):
+    """Set the top-level description in a YAML or JSON tracklist, keeping YAML comments."""
+    p = Path(path)
+    if p.suffix.lower() in (".yaml", ".yml"):
+        src = p.read_text(encoding="utf-8")
+        line = "description: " + json.dumps(text, ensure_ascii=False)   # a JSON string is valid YAML
+        if re.search(r"(?m)^description:.*$", src):
+            src = re.sub(r"(?m)^description:.*$", lambda _: line, src, count=1)
+        elif re.search(r"(?m)^name:.*$", src):
+            src = re.sub(r"(?m)^(name:.*)$", lambda m: m.group(1) + "\n" + line, src, count=1)
+        else:
+            src = line + "\n" + src
+        p.write_text(src, encoding="utf-8")
+    else:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        data["description"] = text
+        p.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    if load_tracklist(path).get("description") != text:
+        sys.exit(f"Couldn't save the description to {path} correctly; please check the file.")
+
+
 def ai_summary(pl: dict, tracks: list, artists, year, model: str = AI_MODEL):
     """Print an AI-written overview of the playlist; never fails the info command."""
     model = AI_DEFAULTS.get(model.lower(), model)
-    provider = ai_provider(model)
-    if not provider:
-        print(f"\nAI summary: skipped ('{model}' isn't a Claude (claude-...) or OpenAI (gpt-..., o...) model)")
-        return
-    lines = [f"{i}. {artists(t)} – {t.get('name')} ({fmt_ms(t.get('duration_ms', 0))}, "
-             f"album year {year(t) or '?'})" for i, t in enumerate(tracks, 1)]
-    prompt = (
-        f"Playlist: {pl.get('name')}\n"
-        f"Description: {pl.get('description') or '(none)'}\n"
-        f"{len(tracks)} tracks, {fmt_ms(sum(t.get('duration_ms', 0) for t in tracks))} total, in play order:\n"
-        + "\n".join(lines)
-        + "\n\nAlbum years can be later than the original release because of remasters and "
-          "compilations.\n\nIn two or three short paragraphs (under 250 words), describe the "
-          "playlist's overall character: its genres and eras, how the mood and energy move "
-          "from start to finish, a few standout tracks or transitions, and the setting it suits."
-    )
+    prompt = (playlist_brief(pl, tracks, artists, year)
+              + "In two or three short paragraphs (under 250 words), describe the "
+                "playlist's overall character: its genres and eras, how the mood and energy move "
+                "from start to finish, a few standout tracks or transitions, and the setting it suits.")
     print(f"Asking {model} for a summary...", end="", flush=True, file=sys.stderr)
     try:
-        text = (claude_text if provider == "anthropic" else openai_text)(model, prompt)
+        text = ask_ai(model, prompt)
     except AISkipped as why:
         print("\r\033[K", end="", file=sys.stderr)
         print(f"\nAI summary: skipped ({why}; or pass --no-ai)")
@@ -773,9 +877,15 @@ def main():
 
     n = sub.add_parser("info", help="summary and tracklist of a playlist")
     n.add_argument("target", help="playlist name, ID, spotify:playlist: URI or open.spotify.com link")
-    n.add_argument("--no-ai", action="store_true", help="skip the AI-written summary")
+    n.add_argument("--no-ai", action="store_true",
+                   help="skip the AI-written summary (--set-description still runs)")
+    n.add_argument("--set-description", action="store_true",
+                   help="write a short AI description (max 300 characters, plain text) to the "
+                        "Spotify playlist, after showing it to you")
+    n.add_argument("--file", help="with --set-description: also save it to this YAML/JSON tracklist")
+    n.add_argument("--yes", "-y", action="store_true", help="with --set-description: don't ask first")
     n.add_argument("--model", default=AI_MODEL,
-                   help=f"model for the AI summary: 'claude' ({AI_DEFAULTS['claude']}), 'openai' "
+                   help=f"model for the AI summary and --set-description: 'claude' ({AI_DEFAULTS['claude']}), 'openai' "
                         f"({AI_DEFAULTS['openai']}), or any Claude (claude-...) or OpenAI (gpt-..., o...) "
                         f"model ID (default: {AI_MODEL})")
     n.set_defaults(func=cmd_info)

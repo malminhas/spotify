@@ -51,8 +51,8 @@ Your Spotify settings go in a `.env` file in the repo folder, next to `playlist_
    ```
 3. Check that it's picked up and ignored:
    ```bash
-   python playlist_generator.py list     # signs in on first run
-   git check-ignore .env                            # prints ".env" if it's ignored
+   python playlist_generator.py list   # signs in on first run
+   git check-ignore .env                # prints ".env" if it's ignored
    ```
 
 How it's read:
@@ -79,9 +79,14 @@ python playlist_generator.py create party_2026.yaml --replace
 python playlist_generator.py check party_2026.yaml
 
 # Summary (length, tracks, artists, years), AI-written overview and full tracklist
-python playlist_generator.py info "Party 2026"                  # overview by Claude Opus 5.5
-python playlist_generator.py info "Party 2026" --model openai   # overview by gpt-5.5
-python playlist_generator.py info "Party 2026" --no-ai          # skip the overview
+python playlist_generator.py info "Party 2026"                             # overview by Claude Opus 5.5 (default)
+python playlist_generator.py info "Party 2026" --model claude              # same, named explicitly
+python playlist_generator.py info "Party 2026" --model openai              # overview by gpt-5.5
+python playlist_generator.py info "Party 2026" --model claude-sonnet-5-5   # any full model ID
+python playlist_generator.py info "Party 2026" --no-ai                     # skip the overview
+
+# Write a short AI description to the playlist on Spotify (shows it and asks first)
+python playlist_generator.py info "Party 2026" --no-ai --set-description --file party_2026.yaml
 
 # List your playlists (--all includes ones you follow, --filter TEXT, --json)
 python playlist_generator.py list
@@ -93,8 +98,8 @@ python playlist_generator.py delete "Party 2026"
 | Command | What it does |
 |---|---|
 | `create FILE` | Builds a playlist in file order. Stops with an error if you already own a playlist with that name, unless you pass `--replace` (swap its tracks, keep its link) or `--allow-duplicate-name`. Every track is looked up before anything changes, and at the end it lists any it couldn't add. Other options: `--name`, `--description`, `--public`. |
-| `check FILE` | Compares the Spotify playlist with the file track by track, using exact track IDs. Prints the tracklist by section with each section's track count and running time, and marks mismatches with ✗. Exits with code 1 on a mismatch. |
-| `info TARGET` | Shows a playlist's link, owner, visibility, description, track and artist counts, total and average length, shortest and longest tracks, top artists and album years by decade, a short AI-written overview (mood, arc, standout moments), then the full tracklist with lengths and years. `TARGET` is a name, ID or link. Album years come from the album on Spotify, so remasters and compilations can show a later year. Choose who writes the overview with `--model` (see [AI summary models](#ai-summary-models)); `--no-ai` skips it. |
+| `check FILE` | Compares the Spotify playlist with the file track by track, using exact track IDs. Prints the tracklist by section with each section's track count and running time, and marks mismatches with ✗. Exits with code 1 on a mismatch. Finds the playlist by the file's `name`; pass `--name` if it's called something else on Spotify. |
+| `info TARGET` | Shows a playlist's link, owner, visibility, description, track and artist counts, total and average length, shortest and longest tracks, top artists and album years by decade, a short AI-written overview (mood, arc, standout moments), then the full tracklist with lengths and years. `TARGET` is a name, ID or link. Album years come from the album on Spotify, so remasters and compilations can show a later year. Choose who writes the overview with `--model` (see [AI summary models](#ai-summary-models)); `--no-ai` skips it. `--set-description` writes a short AI description to the playlist on Spotify (see [Setting the Spotify description](#setting-the-spotify-description)). |
 | `list` | Shows your playlists with track counts, visibility and IDs. |
 | `delete TARGET` | Removes a playlist from your library. Spotify has no hard delete; you can recover a removed playlist from your account page (*Recover playlists*). Use `--all-matches` when several playlists share a name. |
 
@@ -122,7 +127,7 @@ How it works:
 - **Same prompt for both:** the playlist's name, description and full tracklist (artist, title, length, album year), with a request for two or three short paragraphs on genres and eras, the mood and energy arc, standout tracks or transitions, and the setting it suits.
 - **APIs used:** Claude through the Anthropic Messages API at `medium` effort; OpenAI through the Responses API. On Claude Fable 5.1, Opus 5.5, Opus 5 and Sonnet 5.5, Anthropic's server-side fallback is on: if the model declines the request, Anthropic re-runs it on its recommended fallback model.
 - **Failures never break `info`:** a missing or rejected key, an unknown model, a rate limit, a network problem or a declined request prints `AI summary: skipped (…)` with the reason, and the stats and tracklist still appear.
-- **Cost and privacy:** each run is one billed API call, typically a few cents, to the provider you chose. The tracklist is sent to that provider; nothing else from your Spotify account is.
+- **Cost and privacy:** each run is one billed API call, typically a few cents, to the provider you chose. The playlist's name, description and tracklist are sent to that provider; nothing else from your Spotify account is.
 
 To see which OpenAI models your key can use:
 
@@ -131,6 +136,31 @@ python -c "from openai import OpenAI; print('\n'.join(sorted(m.id for m in OpenA
 ```
 
 Run `set -a; source .env; set +a` first so the key is in your environment. For Claude, the current models are listed at https://platform.claude.com/docs/en/about-claude/models/overview.
+
+### Setting the Spotify description
+
+`info --set-description` asks the chosen model (the same `--model` choices as the overview) for a one- or two-sentence description and writes it to the playlist on Spotify:
+
+```bash
+python playlist_generator.py info "Party 2026" --no-ai --set-description                          # Claude
+python playlist_generator.py info "Party 2026" --no-ai --set-description --model openai           # gpt-5.5
+python playlist_generator.py info "Party 2026" --no-ai --set-description --file party_2026.yaml   # also save it
+```
+
+1. It shows the proposed description, its length, and the description it would replace.
+2. It asks `Set this as the playlist description? [y/N]`. Anything but `y` leaves Spotify unchanged; `--yes` skips the question.
+3. It updates Spotify, then reads the description back and confirms Spotify stored exactly that text.
+
+**Spotify's rules.** Spotify doesn't officially document a limit, and community reports say clients differ (300 characters in some apps, up to 512 in others). So every description is cleaned to fit the strictest version:
+
+- at most **300 characters**: the model is asked for 250, and anything longer is trimmed at a sentence end, or else at a word with `…`
+- a **single line of plain text**: line breaks, tabs and control characters become spaces, and HTML tags, `<`/`>`, Markdown (`*`, `_`, `#`, backticks) and surrounding quotes are removed
+- **never empty**: the API ignores an empty description, so an empty result is rejected
+- only on **playlists you own**
+
+**Keep it with `--file`.** `create --replace` writes the file's `description` back to Spotify. Pass `--file party_2026.yaml` (or `.json`) to save the new description there too, so the next replace keeps it. YAML comments and layout are preserved.
+
+`--no-ai` only skips the long overview, so `--no-ai --set-description` makes a single AI call.
 
 ### Tracklist format
 
