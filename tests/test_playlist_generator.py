@@ -278,3 +278,198 @@ def test_version_flag(monkeypatch, capsys):
     assert exit_info.value.code == 0
     assert capsys.readouterr().out.strip() == (
         f"playlist_generator.py {pg.__version__} ({pg.__date__}) by {pg.__author__}")
+
+
+# ---------------------------------------------------------------- list, delete, dry-run, check, info output
+
+def track_obj(n: int, artist: str = "Artist", ms: int = 200_000, year: str = "1991") -> dict:
+    tid = f"{n:022d}"
+    return {"id": tid, "uri": f"spotify:track:{tid}", "name": f"Song {n}", "duration_ms": ms,
+            "artists": [{"name": artist}], "album": {"name": "Album", "release_date": year}}
+
+
+def pl_obj(pid: str, name: str, owner: str = "me", tracks: int = 3, public: bool = False) -> dict:
+    return {"id": pid * 22 if len(pid) == 1 else pid, "name": name, "owner": {"id": owner, "display_name": owner},
+            "public": public, "items": {"total": tracks}}
+
+
+class CliSpotify:
+    """Fake Spotify for the list/delete/check/info commands; records every call."""
+
+    def __init__(self, playlists=None, live=None):
+        self.playlists = playlists if playlists is not None else [pl_obj("A", "Test Mix")]
+        self.live = live if live is not None else [track_obj(i) for i in range(3)]
+        self.calls = []
+
+    def me(self):
+        return {"id": "me"}
+
+    def my_playlists(self, include_followed=False):
+        return [p for p in self.playlists if include_followed or p["owner"]["id"] == "me"]
+
+    def playlist_tracks(self, playlist_id):
+        return self.live
+
+    def album_uris(self, album_id, discs=None, numbers=None):
+        return []
+
+    def call(self, method, url, **kw):
+        self.calls.append((method, url, kw))
+        return {}
+
+
+@pytest.fixture
+def cli(monkeypatch):
+    """Point the CLI at a CliSpotify; returns a function that sets it up and returns it."""
+    def _use(sp=None):
+        sp = sp or CliSpotify()
+        monkeypatch.setattr(pg, "Spotify", lambda token: sp)
+        monkeypatch.setattr(pg, "get_access_token", lambda *a: "t")
+        monkeypatch.setattr(pg, "client_id", lambda: "c")
+        return sp
+    return _use
+
+
+def ns(**kw):
+    return types.SimpleNamespace(**kw)
+
+
+def test_list_owned_filter_all_and_json(cli, capsys):
+    cli(CliSpotify(playlists=[pl_obj("A", "Test Mix", tracks=3), pl_obj("B", "Party", public=True),
+                              pl_obj("C", "Followed", owner="someone")]))
+    pg.cmd_list(ns(all=False, filter=None, json=False))
+    out = capsys.readouterr().out
+    assert "Test Mix" in out and "Party" in out and "Followed" not in out
+    assert "3 tracks  private" in out and "public " in out
+    pg.cmd_list(ns(all=True, filter="foll", json=True))
+    data = json.loads(capsys.readouterr().out)
+    assert [p["name"] for p in data] == ["Followed"] and data[0]["owner"] == "someone"
+
+
+def test_list_empty(cli, capsys):
+    cli(CliSpotify(playlists=[]))
+    pg.cmd_list(ns(all=False, filter=None, json=False))
+    assert "No playlists found." in capsys.readouterr().out
+
+
+def delete_args(target, yes=False, all_matches=False):
+    return ns(target=target, yes=yes, all_matches=all_matches)
+
+
+def deleted(sp):
+    return [kw["params"]["uris"] for m, u, kw in sp.calls if m == "DELETE" and u == "/me/library"]
+
+
+def test_delete_by_name_asks_first(cli, monkeypatch, capsys):
+    sp = cli()
+    monkeypatch.setattr("builtins.input", lambda *_: "n")
+    pg.cmd_delete(delete_args("Test Mix"))
+    assert deleted(sp) == [] and "Skipped." in capsys.readouterr().out
+    monkeypatch.setattr("builtins.input", lambda *_: "y")
+    pg.cmd_delete(delete_args("Test Mix"))
+    assert deleted(sp) == ["spotify:playlist:" + "A" * 22]
+
+
+def test_delete_by_link_and_id_with_yes(cli):
+    sp = cli()
+    pg.cmd_delete(delete_args("https://open.spotify.com/playlist/" + "A" * 22, yes=True))
+    pg.cmd_delete(delete_args("A" * 22, yes=True))
+    assert deleted(sp) == ["spotify:playlist:" + "A" * 22] * 2
+
+
+def test_delete_shared_name_needs_all_matches(cli):
+    sp = cli(CliSpotify(playlists=[pl_obj("A", "Dup"), pl_obj("B", "Dup")]))
+    with pytest.raises(SystemExit, match="--all-matches"):
+        pg.cmd_delete(delete_args("Dup", yes=True))
+    assert deleted(sp) == []
+    pg.cmd_delete(delete_args("Dup", yes=True, all_matches=True))
+    assert len(deleted(sp)) == 2
+
+
+def test_delete_unknown_name(cli):
+    cli()
+    with pytest.raises(SystemExit, match="No playlist named 'Nope'"):
+        pg.cmd_delete(delete_args("Nope", yes=True))
+
+
+def test_dry_run_needs_no_sign_in(write, monkeypatch, capsys):
+    def no_sign_in(*a):
+        raise AssertionError("dry run must not sign in")
+    monkeypatch.setattr(pg, "get_access_token", no_sign_in)
+    data = tracklist(2, album=True)
+    data["tracks"].insert(0, {"title": "Unlinked", "artist": "Someone"})
+    pg.cmd_create(ns(file=write("t.yaml", data), name=None, description=None, public=False,
+                     dry_run=True, allow_duplicate_name=False, replace=False))
+    out = capsys.readouterr().out
+    assert "Would create 'Test Mix' (private) with:" in out
+    assert "Someone – Unlinked  [search by artist + title]" in out
+    assert "Artist – Song 0  [track]" in out
+    assert "album tracks, track(s) [3]" in out and "(1 entries marked skip)" in out
+
+
+def check_file(write, order=(0, 1, 2)):
+    return write("t.yaml", {"name": "Test Mix", "tracks": [
+        {"title": f"Song {i}", "artist": "Artist", "section": "Intro" if n < 2 else "Peak", "link": track(i)}
+        for n, i in enumerate(order)]})
+
+
+def test_check_ok_prints_sections(cli, write, capsys):
+    cli()
+    pg.cmd_check(ns(file=check_file(write), name=None))
+    out = capsys.readouterr().out
+    assert "Intro  (2 tracks, 6:40)" in out and "Peak  (1 tracks, 3:20)" in out
+    assert "OK: Spotify playlist matches" in out and "✗" not in out
+
+
+def test_check_mismatch_exits_with_details(cli, write, capsys):
+    cli()
+    with pytest.raises(SystemExit, match="MISMATCH: 2 position"):
+        pg.cmd_check(ns(file=check_file(write, order=(1, 0, 2)), name=None))
+    out = capsys.readouterr().out
+    assert out.count("✗") == 2 and "file:    Artist – Song 1" in out and "Spotify: Artist – Song 0" in out
+
+
+def test_check_needs_the_playlist(cli, write):
+    cli(CliSpotify(playlists=[]))
+    with pytest.raises(SystemExit, match="found 0"):
+        pg.cmd_check(ns(file=check_file(write), name=None))
+
+
+def test_info_prints_stats_and_tracklist(cli, capsys):
+    cli(CliSpotify(live=[track_obj(0, "Orbital", 180_000, "1991"), track_obj(1, "Orbital", 600_000, "1993"),
+                         track_obj(2, "Aphex Twin", 300_000, "1975")]))
+    pg.cmd_info(ns(target="Test Mix", no_ai=True, set_description=False, file=None, yes=False, model="claude"))
+    out = capsys.readouterr().out
+    assert "Tracks:       3 (2 artists)" in out
+    assert "Length:       18:00 (average 6:00 per track)" in out
+    assert "Shortest:     Orbital – Song 0 (3:00)" in out and "Longest:      Orbital – Song 1 (10:00)" in out
+    assert "Top artists:  Orbital (2), Aphex Twin (1)" in out
+    assert "Album years:  1975–1993; 1970s 1, 1990s 2" in out
+    assert "AI summary" not in out                               # --no-ai
+    assert "    3. Aphex Twin – Song 2" in out
+
+
+def test_info_file_needs_set_description():
+    with pytest.raises(SystemExit, match="--file is only used with --set-description"):
+        pg.cmd_info(ns(target="x", no_ai=True, set_description=False, file="t.yaml", yes=False, model="claude"))
+
+
+# ---------------------------------------------------------------- .env loading
+
+def test_load_dotenv(tmp_path, monkeypatch):
+    env = tmp_path / ".env"
+    env.write_text('# comment\nPG_TEST_A=plain\nexport PG_TEST_B="quoted value"\nPG_TEST_C=from-file\n\nnot a setting\n')
+    for k in ("PG_TEST_A", "PG_TEST_B"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("PG_TEST_C", "from-shell")
+    pg.load_dotenv(env)
+    import os
+    assert os.environ["PG_TEST_A"] == "plain"
+    assert os.environ["PG_TEST_B"] == "quoted value"            # quotes and 'export ' handled
+    assert os.environ["PG_TEST_C"] == "from-shell"              # the shell wins over .env
+    for k in ("PG_TEST_A", "PG_TEST_B"):
+        monkeypatch.delenv(k)
+
+
+def test_load_dotenv_missing_file_is_fine(tmp_path):
+    pg.load_dotenv(tmp_path / "nope.env")

@@ -2,7 +2,7 @@
 """
 playlist_generator.py — build Spotify playlists from YAML or JSON tracklists.
 
-Version 1.2.0, 2026-11-08, by Mal Minhas (python playlist_generator.py -V)
+Version 1.2.1, 2026-11-09, by Mal Minhas (python playlist_generator.py -V)
 
 Commands
   create FILE      Create a playlist from a YAML/JSON tracklist, in order.
@@ -71,6 +71,12 @@ Notes
   DELETE /me/library, search limit of 10. The app owner needs Premium.
 
 Release notes
+  1.2.1 (2026-11-09)  More tests.
+    - CLI: list, delete, create --dry-run, check and info output, and .env loading.
+    - MCP: an end-to-end test over the real stdio protocol (test_mcp_stdio.py,
+      with fake_spotify_server.py as the server). 76 tests in all.
+    - No change to how the CLI or the MCP server behaves.
+
   1.2.0 (2026-11-08)  Playback in the MCP server.
     - mcp_server.py adds list_devices and now_playing (read-only) and
       play_playlist, play_track, pause, resume, next_track, previous_track and
@@ -107,8 +113,8 @@ Release notes
     - PKCE sign-in with a cached token; settings and API keys read from .env.
 """
 
-__version__ = "1.2.0"
-__date__ = "2026-11-08"
+__version__ = "1.2.1"
+__date__ = "2026-11-09"
 __author__ = "Mal Minhas"
 
 import argparse

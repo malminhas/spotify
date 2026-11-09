@@ -10,7 +10,7 @@ Various Spotify experiments:
 
 ## Playlist generator
 
-**Version 1.2.0** (2026-11-08). Run `python playlist_generator.py -V` to see the installed version; release notes are in the script's header.
+**Version 1.2.1** (2026-11-09). Run `python playlist_generator.py -V` to see the installed version; release notes are in the script's header.
 
 `playlist_generator.py` takes a tracklist file (YAML or JSON) and creates a Spotify playlist with the tracks in file order. Tracklists are local files and are git-ignored (see [Tracklists stay local](#tracklists-stay-local)).
 
@@ -110,7 +110,7 @@ Global options go before the command:
 
 | Option | What it does |
 |---|---|
-| `-V`, `--version` | Prints the version, release date and author, e.g. `playlist_generator.py 1.2.0 (2026-11-08) by Mal Minhas`. |
+| `-V`, `--version` | Prints the version, release date and author, e.g. `playlist_generator.py 1.2.1 (2026-11-09) by Mal Minhas`. |
 | `--login` | Ignores the cached Spotify token and signs in again, e.g. `python playlist_generator.py --login list`. |
 | `-h`, `--help` | Lists the commands; `python playlist_generator.py COMMAND --help` lists a command's options. |
 
@@ -215,7 +215,13 @@ Only `link` (or `title` and `artist` when there's no link) decides what gets add
 
 ### Tests
 
-The tests are in `tests/` (`test_playlist_generator.py` for the CLI, `test_mcp_server.py` for the MCP server) and use [pytest](https://docs.pytest.org/). They check everything without touching Spotify, Anthropic or OpenAI: a fake Spotify client and fake AI replies stand in for the real services, and each test builds its own sample tracklists in a temporary folder. So they run in a fresh clone, need no `.env` or sign-in, and cost nothing.
+The tests are in `tests/` and use [pytest](https://docs.pytest.org/). They check everything without touching Spotify, Anthropic or OpenAI: a fake Spotify client and fake AI replies stand in for the real services, and each test builds its own sample tracklists in a temporary folder. So they run in a fresh clone, need no `.env` or sign-in, and cost nothing.
+
+| File | Tests | What it checks |
+|---|---|---|
+| `test_playlist_generator.py` | 49 | The CLI script: every command and helper |
+| `test_mcp_server.py` | 26 | The MCP server's tools, called directly |
+| `test_mcp_stdio.py` | 1 | The MCP server end to end over the real stdio protocol, as Claude connects to it (it starts `fake_spotify_server.py` as the server process) |
 
 ```bash
 workon spotify                      # the virtualenv from Setup
@@ -226,17 +232,19 @@ pytest -k description               # only tests whose name contains "descriptio
 python -m pytest                    # same as pytest, if pytest isn't on your PATH
 ```
 
-A passing run ends with `61 passed`. A failure names the test and shows what differed; fix it before committing.
+A passing run ends with `76 passed`. A failure names the test and shows what differed; fix it before committing.
 
 What they cover:
 
-- loading YAML and JSON tracklists, and reading Spotify links
+- loading YAML and JSON tracklists, reading Spotify links, and `.env` settings (the shell wins over the file)
+- `list` (owned, `--all`, `--filter`, `--json`), `delete` (asking first, by name, ID or link, shared names, `--all-matches`), and `create --dry-run` (no sign-in)
+- `check` and `info` output: section totals, mismatch lines and exit code, stats and tracklist
 - `create --replace`: updating in place, batches of 100 in file order, skipped entries, refusing an existing name without `--replace`
 - AI models: which provider each model name uses, the `claude`/`openai` shortcuts, and a missing key skipping the overview
 - Spotify description rules: one plain-text line, HTML and Markdown removed, at most 300 characters
 - `info --set-description`: declining, accepting, read-back checks, saving with `--file`, own playlists only, and AI failures
 - `-V` output
-- the MCP server: read-only and playback tools marked correctly, device choice, playing from a track number, rewinding a resumed track, pause/resume/skip/volume, each tool's results, path checks for tracklist files, Spotify errors becoming tool errors, and nothing printed to stdout (which carries the MCP protocol)
+- the MCP server: read-only and playback tools marked correctly, device choice, playing from a track number, rewinding a resumed track, pause/resume/skip/volume, each tool's results, path checks for tracklist files, Spotify errors becoming tool errors, nothing printed to stdout (which carries the MCP protocol), and a full session over stdio: start-up, 14 tools listed, tool calls, and errors returned without stopping the server
 
 Run them before committing changes to `playlist_generator.py` or `mcp_server.py`.
 
@@ -285,17 +293,55 @@ The AI overview isn't a tool: Claude writes it from `playlist_info`, so the serv
    ```
    Then run `claude mcp list` to check it's connected, or `/mcp` inside Claude Code.
 
-   **Claude Desktop**: add this to `~/Library/Application Support/Claude/claude_desktop_config.json` (merge it into any existing `mcpServers`), then restart Claude Desktop:
+   **Claude Desktop**: see [Claude Desktop configuration](#claude-desktop-configuration) below.
+
+### Claude Desktop configuration
+
+Claude Desktop starts local MCP servers listed in its config file:
+
+```
+~/Library/Application Support/Claude/claude_desktop_config.json
+```
+
+1. **Quit Claude Desktop** (⌘Q). It only reads the file when it starts.
+2. **Back up the file** first, if it exists:
+   ```bash
+   cp ~/Library/Application\ Support/Claude/claude_desktop_config.json{,.bak}
+   ```
+3. **Add `spotify-playlists` under `mcpServers`.** Use full paths: `~` and `$HOME` aren't expanded here.
    ```json
    {
      "mcpServers": {
        "spotify-playlists": {
          "command": "/Users/<you>/.virtualenvs/spotify/bin/python",
-         "args": ["/path/to/spotify/mcp_server.py"]
+         "args": ["/Users/<you>/path/to/spotify/mcp_server.py"]
        }
      }
    }
    ```
+   - `command` is the `spotify` virtualenv's Python, so the server has its packages. `ls ~/.virtualenvs/spotify/bin/python` shows the path.
+   - `args` is the full path to `mcp_server.py` in your clone. Run `pwd` in the repo folder to get it.
+   - If the file already has other servers or settings, add `"spotify-playlists": {…}` as one more entry inside the existing `mcpServers`, with a comma after the entry before it. Leave everything else as it is.
+4. **Check the file is still valid JSON.** A missing or extra comma makes Desktop ignore the whole file.
+   ```bash
+   python3 -m json.tool ~/Library/Application\ Support/Claude/claude_desktop_config.json > /dev/null && echo OK
+   ```
+5. **Approve Spotify access before opening Desktop**, so the first tool call doesn't wait on a browser sign-in:
+   ```bash
+   workon spotify
+   python -c "import mcp_server; mcp_server.spotify()"   # opens the browser once; click Agree
+   ```
+6. **Start Claude Desktop** and open **Settings → Customize → Connectors**. `spotify-playlists` should be listed as **Desktop · Local dev** with a tick. In a chat, it's also in the tools menu under the message box.
+
+**Keep secrets out of this file.** The config needs no keys, tokens or Client ID: the server reads `SPOTIFY_CLIENT_ID` (and any API keys) from the repo's git-ignored `.env`, and keeps its Spotify sign-in in `~/.config/spotify-playlist/token.json`. Don't add an `"env"` block with keys here; the file is plain text outside the repo, and it's easy to paste into a chat or screenshot.
+
+**Using it in a chat.** If the built-in **Spotify** web connector is also turned on, Claude may pick that one, and it can't play music. Name the server, e.g. *"Using spotify-playlists, play Party 2026 from track 25 at 30% volume"*, or turn the built-in connector off for that chat. For playback, have a Spotify app open; a web player needs play pressed once first. Desktop asks before running each playback tool.
+
+**If it doesn't appear or a tool fails**, Desktop logs the server's start-up and every call here:
+```bash
+tail -50 ~/Library/Logs/Claude/mcp-server-spotify-playlists.log
+```
+The usual causes are invalid JSON, a wrong path in `command` or `args`, or Desktop not restarted. If Spotify reports missing permissions, run step 5 again.
 
 **How it works:**
 
