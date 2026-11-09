@@ -3,13 +3,14 @@
 Various Spotify experiments:
 
 - **[`playlist_generator.py`](playlist_generator.py)**: a command-line tool that builds Spotify playlists from YAML or JSON tracklists, then lists, checks, summarises and describes them (with optional Claude- or OpenAI-written overviews and Spotify descriptions), and deletes them.
+- **[`mcp_server.py`](mcp_server.py)**: a local MCP server so Claude Code and Claude Desktop can look at your playlists, check them against tracklists, search Spotify and play music.
 - **[`spotify_playbook.ipynb`](spotify_playbook.ipynb)**: a Jupyter notebook that explores a playlist with `spotipy` and analyses your Spotify streaming history.
 
 ---
 
 ## Playlist generator
 
-**Version 1.0.1** (2026-11-08). Run `python playlist_generator.py -V` to see the installed version; release notes are in the script's header.
+**Version 1.2.0** (2026-11-08). Run `python playlist_generator.py -V` to see the installed version; release notes are in the script's header.
 
 `playlist_generator.py` takes a tracklist file (YAML or JSON) and creates a Spotify playlist with the tracks in file order. Tracklists are local files and are git-ignored (see [Tracklists stay local](#tracklists-stay-local)).
 
@@ -22,7 +23,7 @@ It targets the Spotify Web API as it stands after the February 2026 Development 
    - Redirect URI: `http://127.0.0.1:8888/callback` (must match exactly)
 2. Create a `spotify` virtualenv with the dependencies, using [virtualenvwrapper](https://virtualenvwrapper.readthedocs.io/). `-a .` links it to this folder, so `workon spotify` also changes into it.
    ```bash
-   mkvirtualenv -a . -r requirements.txt spotify   # requests, pyyaml, anthropic, openai
+   mkvirtualenv -a . -r requirements.txt spotify   # requests, pyyaml, anthropic, openai, mcp, pytest
    workon spotify                                  # in each new shell
    ```
 3. Put your app's Client ID in a `.env` file. See [Setting up `.env`](#setting-up-env) below.
@@ -109,7 +110,7 @@ Global options go before the command:
 
 | Option | What it does |
 |---|---|
-| `-V`, `--version` | Prints the version, release date and author, e.g. `playlist_generator.py 1.0.1 (2026-11-08) by Mal Minhas`. |
+| `-V`, `--version` | Prints the version, release date and author, e.g. `playlist_generator.py 1.2.0 (2026-11-08) by Mal Minhas`. |
 | `--login` | Ignores the cached Spotify token and signs in again, e.g. `python playlist_generator.py --login list`. |
 | `-h`, `--help` | Lists the commands; `python playlist_generator.py COMMAND --help` lists a command's options. |
 
@@ -214,7 +215,7 @@ Only `link` (or `title` and `artist` when there's no link) decides what gets add
 
 ### Tests
 
-The tests are in `tests/test_playlist_generator.py` and use [pytest](https://docs.pytest.org/). They check the generator without touching Spotify, Anthropic or OpenAI: a fake Spotify client and fake AI replies stand in for the real services, and each test builds its own sample tracklists in a temporary folder. So they run in a fresh clone, need no `.env` or sign-in, and cost nothing.
+The tests are in `tests/` (`test_playlist_generator.py` for the CLI, `test_mcp_server.py` for the MCP server) and use [pytest](https://docs.pytest.org/). They check everything without touching Spotify, Anthropic or OpenAI: a fake Spotify client and fake AI replies stand in for the real services, and each test builds its own sample tracklists in a temporary folder. So they run in a fresh clone, need no `.env` or sign-in, and cost nothing.
 
 ```bash
 workon spotify                      # the virtualenv from Setup
@@ -225,7 +226,7 @@ pytest -k description               # only tests whose name contains "descriptio
 python -m pytest                    # same as pytest, if pytest isn't on your PATH
 ```
 
-A passing run ends with `35 passed`. A failure names the test and shows what differed; fix it before committing.
+A passing run ends with `61 passed`. A failure names the test and shows what differed; fix it before committing.
 
 What they cover:
 
@@ -235,8 +236,74 @@ What they cover:
 - Spotify description rules: one plain-text line, HTML and Markdown removed, at most 300 characters
 - `info --set-description`: declining, accepting, read-back checks, saving with `--file`, own playlists only, and AI failures
 - `-V` output
+- the MCP server: read-only and playback tools marked correctly, device choice, playing from a track number, rewinding a resumed track, pause/resume/skip/volume, each tool's results, path checks for tracklist files, Spotify errors becoming tool errors, and nothing printed to stdout (which carries the MCP protocol)
 
-Run them before committing changes to `playlist_generator.py`.
+Run them before committing changes to `playlist_generator.py` or `mcp_server.py`.
+
+---
+
+## MCP server: playlists in Claude
+
+`mcp_server.py` is a local [MCP](https://modelcontextprotocol.io/) server. Once it's added to Claude Code or Claude Desktop, you can ask Claude about your playlists in plain language, for example *"Does Party 2026 still match party_2026.yaml?"* or *"Find Underworld's Rez on Spotify and give me the link for my tracklist."*
+
+**It never changes your playlists or library.** The read-only tools only read from Spotify or local tracklist files. The playback tools only control what's playing, and Claude asks before using them. To change a playlist, Claude gives you the `playlist_generator.py` command to run.
+
+| Tool | What it returns |
+|---|---|
+| `list_playlists` | Your playlists (optionally filtered by name, or including followed ones) with track counts, visibility, IDs and links |
+| `playlist_info` | One playlist's description, track and artist counts, total and average length, shortest and longest tracks, top artists, album years by decade, and the full tracklist with links |
+| `read_tracklist` | A local YAML/JSON tracklist, including sections, notes and skipped entries |
+| `check_playlist` | Whether a playlist matches a tracklist file, with section totals and every position that differs |
+| `search_tracks` | Up to 10 Spotify search results with links to paste into a tracklist |
+| `list_devices` | Spotify apps that can play: Mac or phone app, web player, speakers |
+| `now_playing` | The current track, position, device, volume and playlist |
+
+Playback tools (need Spotify Premium and an open Spotify app):
+
+| Tool | What it does |
+|---|---|
+| `play_playlist` | Plays a playlist, optionally from a track number, on a chosen device and volume |
+| `play_track` | Plays one track, by link or by search (e.g. "Rez Underworld") |
+| `pause`, `resume`, `next_track`, `previous_track`, `set_volume` | Control what's playing |
+
+Try *"Play Party 2026 from track 25 at 30% volume"* or *"What's playing?"*. A web player only shows up as a device after you've pressed play in it once. If Spotify resumes a track part-way through, `play_playlist` rewinds it to the start.
+
+The AI overview isn't a tool: Claude writes it from `playlist_info`, so the server needs no Anthropic or OpenAI key.
+
+### Setup
+
+1. Complete the [generator setup](#setup-once), including `.env`, and sign in once with the CLI so the token is cached:
+   ```bash
+   workon spotify
+   python playlist_generator.py list
+   ```
+2. Add the server, using the full paths to the `spotify` virtualenv's Python and to `mcp_server.py`:
+
+   **Claude Code**, for all your projects:
+   ```bash
+   claude mcp add -s user spotify-playlists -- ~/.virtualenvs/spotify/bin/python "$PWD/mcp_server.py"
+   ```
+   Then run `claude mcp list` to check it's connected, or `/mcp` inside Claude Code.
+
+   **Claude Desktop**: add this to `~/Library/Application Support/Claude/claude_desktop_config.json` (merge it into any existing `mcpServers`), then restart Claude Desktop:
+   ```json
+   {
+     "mcpServers": {
+       "spotify-playlists": {
+         "command": "/Users/<you>/.virtualenvs/spotify/bin/python",
+         "args": ["/path/to/spotify/mcp_server.py"]
+       }
+     }
+   }
+   ```
+
+**How it works:**
+
+- It runs on your machine over stdio and reuses the generator's Spotify sign-in, cached token and `.env`, wherever Claude starts it from.
+- The playback tools need two extra Spotify permissions. Only the server asks for them, so the CLI is unchanged. The first time, your browser opens once to approve; run `python -c "import mcp_server; mcp_server.spotify()"` in the repo to do this before using Claude. Running the CLI's `--login` afterwards removes them again, until you next approve.
+- Tracklist paths can be absolute or relative to the repo folder (e.g. `party_2026.yaml`). Only `.yaml`, `.yml` and `.json` files can be read.
+- Problems such as an unknown playlist, a missing file or a Spotify error come back to Claude as a tool error with the reason.
+- It only works on this computer. Using it from claude.ai on the web or phone would need a hosted server with its own sign-in.
 
 ---
 

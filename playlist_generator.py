@@ -2,7 +2,7 @@
 """
 playlist_generator.py — build Spotify playlists from YAML or JSON tracklists.
 
-Version 1.0.1, 2026-11-08, by Mal Minhas (python playlist_generator.py -V)
+Version 1.2.0, 2026-11-08, by Mal Minhas (python playlist_generator.py -V)
 
 Commands
   create FILE      Create a playlist from a YAML/JSON tracklist, in order.
@@ -71,6 +71,22 @@ Notes
   DELETE /me/library, search limit of 10. The app owner needs Premium.
 
 Release notes
+  1.2.0 (2026-11-08)  Playback in the MCP server.
+    - mcp_server.py adds list_devices and now_playing (read-only) and
+      play_playlist, play_track, pause, resume, next_track, previous_track and
+      set_volume. They control playback only, never playlists or the library.
+    - Only the MCP server asks for the two playback permissions; the CLI's
+      permissions and behaviour are unchanged.
+    - 14 more tests, 61 in all.
+
+  1.1.0 (2026-11-08)  Read-only MCP server.
+    - mcp_server.py: a local MCP server so Claude Code and Claude Desktop can
+      read playlists: list_playlists, playlist_info, read_tracklist,
+      check_playlist and search_tracks. It can't change Spotify.
+    - playlist_stats() and compare_tracks() now hold the info and check logic,
+      shared by the CLI and the MCP server; CLI output is unchanged.
+    - 12 more tests (tests/test_mcp_server.py), 47 in all.
+
   1.0.1 (2026-11-08)  Tests.
     - tests/test_playlist_generator.py: 35 offline pytest tests (fake Spotify
       client and fake AI replies, no network calls) covering tracklists,
@@ -91,7 +107,7 @@ Release notes
     - PKCE sign-in with a cached token; settings and API keys read from .env.
 """
 
-__version__ = "1.0.1"
+__version__ = "1.2.0"
 __date__ = "2026-11-08"
 __author__ = "Mal Minhas"
 
@@ -535,6 +551,46 @@ def fmt_ms(ms: int) -> str:
     return f"{s // 3600}:{s % 3600 // 60:02d}:{s % 60:02d}" if s >= 3600 else f"{s // 60}:{s % 60:02d}"
 
 
+def track_artists(t: dict) -> str:
+    return ", ".join(a["name"] for a in t.get("artists", []))
+
+
+def album_year(t: dict) -> str:
+    return (t.get("album", {}).get("release_date") or "")[:4]
+
+
+def compare_tracks(pairs: list, live: list) -> list:
+    """Line up the file's tracks ([(uri, entry)]) with the playlist's, position by position."""
+    rows = []
+    for i in range(max(len(pairs), len(live))):
+        want = pairs[i] if i < len(pairs) else None
+        have = live[i] if i < len(live) else None
+        rows.append({
+            "position": i + 1,
+            "section": (want[1].get("section") or "(no section)") if want else "(extra on Spotify)",
+            "ok": bool(want and have and want[0] == have["uri"]),
+            "file": label(want[1]) if want else None,
+            "spotify": f"{track_artists(have)} – {have.get('name')}" if have else None,
+            "duration_ms": have.get("duration_ms", 0) if have else 0,
+        })
+    return rows
+
+
+def playlist_stats(tracks: list) -> dict:
+    """Summary numbers for a non-empty list of Spotify track objects."""
+    total = sum(t.get("duration_ms", 0) for t in tracks)
+    years = sorted(int(y) for t in tracks if (y := album_year(t)).isdigit())
+    return {
+        "total_ms": total,
+        "average_ms": total // len(tracks),
+        "shortest": min(tracks, key=lambda t: t.get("duration_ms", 0)),
+        "longest": max(tracks, key=lambda t: t.get("duration_ms", 0)),
+        "artists": collections.Counter(a["name"] for t in tracks for a in t.get("artists", [])),
+        "years": years,
+        "decades": collections.Counter(f"{y // 10 * 10}s" for y in years),
+    }
+
+
 def cmd_check(args):
     data = load_tracklist(args.file)
     name = args.name or data.get("name")
@@ -546,30 +602,19 @@ def cmd_check(args):
         sys.exit(f"Expected one playlist you own called '{name}', found {len(found)}.")
     pairs, problems = resolve(sp, [e for e in data["tracks"] if not e.get("skip")], quiet=True)
     live = sp.playlist_tracks(found[0]["id"])
+    rows = compare_tracks(pairs, live)
+    mismatches = sum(not r["ok"] for r in rows)
 
-    def desc(t):
-        return f"{', '.join(a['name'] for a in t.get('artists', []))} – {t.get('name')}"
-
-    mismatches, rows = 0, []   # rows: (section, line, ms)
-    for i in range(max(len(pairs), len(live))):
-        want = pairs[i] if i < len(pairs) else None
-        have = live[i] if i < len(live) else None
-        sec = want[1].get("section") or "(no section)" if want else "(extra on Spotify)"
-        ms = have.get("duration_ms", 0) if have else 0
-        if want and have and want[0] == have["uri"]:
-            line = f"   {i + 1:>3}. {desc(have):<70} {fmt_ms(ms):>8}"
-        else:
-            mismatches += 1
-            line = (f" ✗ {i + 1:>3}. file:    {label(want[1]) if want else '(nothing)'}\n"
-                    f"         Spotify: {desc(have) if have else '(nothing)'}")
-        rows.append((sec, line, ms))
-
-    for sec, group in itertools.groupby(rows, key=lambda r: r[0]):
+    for sec, group in itertools.groupby(rows, key=lambda r: r["section"]):
         group = list(group)
-        print(f"\n{sec}  ({len(group)} tracks, {fmt_ms(sum(r[2] for r in group))})")
-        for _, line, _ in group:
-            print(line)
-    total = sum(r[2] for r in rows)
+        print(f"\n{sec}  ({len(group)} tracks, {fmt_ms(sum(r['duration_ms'] for r in group))})")
+        for r in group:
+            if r["ok"]:
+                print(f"   {r['position']:>3}. {r['spotify']:<70} {fmt_ms(r['duration_ms']):>8}")
+            else:
+                print(f" ✗ {r['position']:>3}. file:    {r['file'] or '(nothing)'}\n"
+                      f"         Spotify: {r['spotify'] or '(nothing)'}")
+    total = sum(r["duration_ms"] for r in rows)
 
     print(f"\n{len(live)} tracks on Spotify, {fmt_ms(total)} total. {playlist_url(found[0])}")
     for p in problems:
@@ -594,11 +639,7 @@ def cmd_info(args):
         pass
     tracks = sp.playlist_tracks(pl["id"])
 
-    def artists(t):
-        return ", ".join(a["name"] for a in t.get("artists", []))
-
-    def year(t):
-        return (t.get("album", {}).get("release_date") or "")[:4]
+    artists, year = track_artists, album_year
 
     print(pl.get("name"))
     print(f"  {playlist_url(pl)}")
@@ -610,15 +651,12 @@ def cmd_info(args):
         print("  Tracks:       0 (or not readable: Spotify only lets apps read playlists you own)")
         return
 
-    total = sum(t.get("duration_ms", 0) for t in tracks)
-    shortest = min(tracks, key=lambda t: t.get("duration_ms", 0))
-    longest = max(tracks, key=lambda t: t.get("duration_ms", 0))
-    by_artist = collections.Counter(a["name"] for t in tracks for a in t.get("artists", []))
-    years = sorted(int(y) for t in tracks if (y := year(t)).isdigit())
-    decades = collections.Counter(f"{y // 10 * 10}s" for y in years)
+    st = playlist_stats(tracks)
+    shortest, longest, by_artist, years, decades = (
+        st["shortest"], st["longest"], st["artists"], st["years"], st["decades"])
 
     print(f"  Tracks:       {len(tracks)} ({len(by_artist)} artists)")
-    print(f"  Length:       {fmt_ms(total)} (average {fmt_ms(total // len(tracks))} per track)")
+    print(f"  Length:       {fmt_ms(st['total_ms'])} (average {fmt_ms(st['average_ms'])} per track)")
     print(f"  Shortest:     {artists(shortest)} – {shortest['name']} ({fmt_ms(shortest['duration_ms'])})")
     print(f"  Longest:      {artists(longest)} – {longest['name']} ({fmt_ms(longest['duration_ms'])})")
     print(f"  Top artists:  " + ", ".join(f"{a} ({n})" for a, n in by_artist.most_common(5)))
